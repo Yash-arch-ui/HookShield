@@ -1,13 +1,8 @@
 //SPDX-License-Identifier:MIT
 contract RiskEngine {
-
-    function getRiskScore(
-        uint256 tradeSize,
-        uint256 volatility
-    ) external pure returns (uint256) {
-
+    function getRiskScore(uint256 tradeSize, uint256 volatility) external pure returns (uint256) {
         uint256 sizeFactor = (tradeSize * 100) / 150 ether;
-        uint256 volFactor  = volatility;
+        uint256 volFactor = volatility;
 
         return (sizeFactor + volFactor) / 2;
     }

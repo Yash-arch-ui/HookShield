@@ -10,24 +10,20 @@ contract FeeCalculator {
     // 60000 = 60%
     uint256 public constant NORMAL_VOLATILITY = 60_000;
 
-    uint24 public constant MIN_FEE = 500;     // 0.05%
-    uint24 public constant BASE_FEE = 3000;   // 0.30%
-    uint24 public constant MAX_FEE = 10000;   // 1.00%
+    uint24 public constant MIN_FEE = 500; // 0.05%
+    uint24 public constant BASE_FEE = 3000; // 0.30%
+    uint24 public constant MAX_FEE = 10000; // 1.00%
 
-    function calculateFee(
-        uint256 tradeSize,
-        uint256 volatility
-    ) public pure returns (uint24) {
-
+    function calculateFee(uint256 tradeSize, uint256 volatility) public pure returns (uint24) {
         // Trade ratio
         // 150 ETH => 1.0
-        uint256 tradeRatio =  (tradeSize * SCALE) /  NORMAL_TRADE_SIZE;
+        uint256 tradeRatio = (tradeSize * SCALE) / NORMAL_TRADE_SIZE;
 
-        uint256 volRatio =  (volatility * SCALE) /  NORMAL_VOLATILITY;
+        uint256 volRatio = (volatility * SCALE) / NORMAL_VOLATILITY;
 
-        uint256 volSquared =  (volRatio * volRatio) /  SCALE;
+        uint256 volSquared = (volRatio * volRatio) / SCALE;
 
-         uint256 riskScore = (tradeRatio * volSquared) / SCALE;
+        uint256 riskScore = (tradeRatio * volSquared) / SCALE;
 
         /*
          * Calibration:

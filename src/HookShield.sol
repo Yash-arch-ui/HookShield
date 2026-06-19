@@ -27,68 +27,43 @@ contract HookShield {
     // =========================
     // BEFORE SWAP (CORE LOGIC)
     // =========================
-   function beforeSwap(
-    address sender,
-    PoolKey calldata key,
-    SwapParams calldata params,
-    bytes calldata hookData
-)
-    external
-    returns (bytes4, BeforeSwapDelta, uint24)
-{
-    // 1. Get market data
-    (int256 priceRaw, int256 volRaw,,) = marketData.getLatestMarketData();
-    uint256 price = uint256(priceRaw);
-    uint256 volatility = uint256(volRaw);
-    // 2. Compute fee using your model
-    uint24 fee = feeCalculator.calculateFee(
-        params.amountSpecified > 0
-            ? uint256(params.amountSpecified)
-            : uint256(-params.amountSpecified),
-        volatility
-    );
-    uint256 tradeSize= params.amountSpecified>0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
-    emit DynamicFeeComputed(  tradeSize, volatility,   fee);
+    function beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
+        external
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        // 1. Get market data
+        (int256 priceRaw, int256 volRaw,,) = marketData.getLatestMarketData();
+        uint256 price = uint256(priceRaw);
+        uint256 volatility = uint256(volRaw);
+        // 2. Compute fee using your model
+        uint24 fee = feeCalculator.calculateFee(
+            params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified), volatility
+        );
+        uint256 tradeSize =
+            params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
+        emit DynamicFeeComputed(tradeSize, volatility, fee);
 
-    latestFee = fee;
+        latestFee = fee;
 
-    // 3. Return fee to PoolManager
-    return (
-        this.beforeSwap.selector,
-        BeforeSwapDelta.wrap(0),
-        fee
-    );
-}
+        // 3. Return fee to PoolManager
+        return (this.beforeSwap.selector, BeforeSwapDelta.wrap(0), fee);
+    }
 
     // =========================
     // REQUIRED HOOK FUNCTIONS
     // (MUST EXIST EVEN IF EMPTY)
     // =========================
 
-    function beforeInitialize(address, PoolKey calldata, uint160)
-        external
-        
-        returns (bytes4)
-    {
+    function beforeInitialize(address, PoolKey calldata, uint160) external returns (bytes4) {
         return IHooks.beforeInitialize.selector;
     }
 
-    function afterInitialize(address, PoolKey calldata, uint160)
-        external
-        
-        returns (bytes4)
-    {
+    function afterInitialize(address, PoolKey calldata, uint160) external returns (bytes4) {
         return IHooks.afterInitialize.selector;
     }
 
-    function beforeAddLiquidity(
-        address,
-        PoolKey calldata,
-        ModifyLiquidityParams calldata,
-        bytes calldata
-    )
+    function beforeAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         external
-        
         returns (bytes4)
     {
         return IHooks.beforeAddLiquidity.selector;
@@ -101,21 +76,12 @@ contract HookShield {
         BalanceDelta,
         BalanceDelta,
         bytes calldata
-    )
-        external
-        returns (bytes4)
-    {
+    ) external returns (bytes4) {
         return IHooks.afterAddLiquidity.selector;
     }
 
-    function beforeRemoveLiquidity(
-        address,
-        PoolKey calldata,
-        ModifyLiquidityParams calldata,
-        bytes calldata
-    )
+    function beforeRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         external
-        
         returns (bytes4)
     {
         return IHooks.beforeRemoveLiquidity.selector;
@@ -128,49 +94,22 @@ contract HookShield {
         BalanceDelta,
         BalanceDelta,
         bytes calldata
-    )
-        external
-        returns (bytes4)
-    {
+    ) external returns (bytes4) {
         return IHooks.afterRemoveLiquidity.selector;
     }
 
-    function afterSwap(
-        address,
-        PoolKey calldata,
-        SwapParams calldata,
-        BalanceDelta,
-        bytes calldata
-    )
+    function afterSwap(address, PoolKey calldata, SwapParams calldata, BalanceDelta, bytes calldata)
         external
         returns (bytes4)
     {
         return bytes4(0);
     }
 
-    function beforeDonate(
-        address,
-        PoolKey calldata,
-        uint256,
-        uint256,
-        bytes calldata
-    )
-        external
-        returns (bytes4)
-    {
+    function beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external returns (bytes4) {
         return IHooks.beforeDonate.selector;
     }
 
-    function afterDonate(
-        address,
-        PoolKey calldata,
-        uint256,
-        uint256,
-        bytes calldata
-    )
-        external
-        returns (bytes4)
-    {
+    function afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external returns (bytes4) {
         return IHooks.afterDonate.selector;
     }
 }

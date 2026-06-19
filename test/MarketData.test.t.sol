@@ -8,7 +8,6 @@ contract MarketDataTest is Test {
     MarketData public marketData;
 
     function setUp() public {
-
         string memory rpcUrl = vm.envString("SEPOLIA_RPC_URL");
         uint256 forkId = vm.createFork(rpcUrl);
         vm.selectFork(forkId);
@@ -34,12 +33,7 @@ contract MarketDataTest is Test {
     }
 
     function test_GetLatestMarketData() public {
-        (
-            int256 price,
-            int256 volatility,
-            uint8 priceDecimals,
-            uint8 volDecimals
-        ) = marketData.getLatestMarketData();
+        (int256 price, int256 volatility, uint8 priceDecimals, uint8 volDecimals) = marketData.getLatestMarketData();
 
         console2.log("Price:", uint256(price));
         console2.log("Volatility:", uint256(volatility));
@@ -49,5 +43,4 @@ contract MarketDataTest is Test {
         assertGt(price, 0);
         assertGt(volatility, 0);
     }
-   
 }
