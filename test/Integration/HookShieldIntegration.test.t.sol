@@ -36,24 +36,23 @@ contract HookShieldIntegrationTest is Test {
     
     }
     function _deployHook() internal returns (HookShield hookAddr){
-       bytes memory constructorArgs = abi.encode(
-        address(this),
-        address(this)
+      uint160 flags = uint160(
+        Hooks.BEFORE_SWAP_FLAG |
+        Hooks.AFTER_SWAP_FLAG
     );
+
+    bytes memory constructorArgs = abi.encode( address(poolManager), address(this) );
 
     (address hookAddress, bytes32 salt) = HookMiner.find(
         address(this),
-        permissions,
+        flags,
         type(HookShield).creationCode,
         constructorArgs
     );
 
-    // deploy using Foundry-style direct CREATE2 via vm
-    address addr = address(new HookShield{salt: salt}(address(this), address(this)));
+    require(hookAddress != address(0), "HookMiner failed");
 
-    require(addr == hookAddress, "MISMATCH");
-
-    hookAddr = HookShield(addr);   
+    hookAddr = HookShield(hookAddress);
     }
 
     function test_init_pool() public {

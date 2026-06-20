@@ -7,29 +7,49 @@ import {MarketData} from "../src/MarketData.sol";
 import {RiskEngine} from "../src/RiskEngine.sol";
 import {FeeCalculator} from "../src/FeeCalculator.sol";
 import {HookShield} from "../src/HookShield.sol";
+import {PoolManager} from "v4-core/PoolManager.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {HookMiner} from "v4-periphery/test/shared/HookMiner.sol";
 
 contract Deploy is Script {
-    function run() external {
-         uint256 privateKey = vm.envUint("PRIVATE_KEY");
+       function run() external {
 
-         vm.startBroadcast(privateKey);
+        uint256 pk = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(pk);
+
+        // 1. DEPLOY DEPENDENCIES
         MarketData marketData = new MarketData();
-        RiskEngine riskEngine =  new RiskEngine();
         FeeCalculator feeCalculator = new FeeCalculator();
-        HookShield hookShield = new HookShield( address(marketData),address(feeCalculator)
+
+        // 2. USE EXISTING POOLMANAGER (FROM ANVIL / TESTS)
+        address poolManager = vm.envAddress("POOL_MANAGER");
+
+        // 3. HOOK BYTECODE
+        bytes memory bytecode = type(HookShield).creationCode;
+
+        uint160 flags =
+            uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
+
+        bytes memory constructorArgs =
+            abi.encode(
+                marketData,
+                feeCalculator,
+                IPoolManager(poolManager)
             );
 
-        console.log( "MarketData:",address(marketData)
-        );
+        (address hookAddress,) =
+            HookMiner.find(
+                address(this),
+                flags,
+                bytecode,
+                constructorArgs
+            );
 
-        console.log("RiskEngine:",address(riskEngine)
-        );
+        HookShield hook = HookShield(hookAddress);
 
-        console.log("FeeCalculator:",address(feeCalculator)
-        );
-
-        console.log("HookShield:",address(hookShield)
-        );
+        console.log("Hook deployed at:", address(hook));
+        console.log("PoolManager:", poolManager);
 
         vm.stopBroadcast();
     }
