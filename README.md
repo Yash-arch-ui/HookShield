@@ -1,66 +1,186 @@
-## Foundry
+# HookShield
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Dynamic Fee Hook for Uniswap v4
 
-Foundry consists of:
+## Overview
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+HookShield is a Uniswap v4 hook that dynamically adjusts swap fees based on real-time market conditions.
 
-## Documentation
+Traditional AMMs use static fee tiers that remain fixed regardless of market volatility or trade conditions. HookShield introduces a dynamic fee mechanism that computes swap fees during execution using external market data and a customizable fee model.
 
-https://book.getfoundry.sh/
+By leveraging Uniswap v4 Hooks, HookShield enables adaptive fee pricing that can better reflect current market risk and trading conditions.
 
-## Usage
+---
 
-### Build
+## Features
 
-```shell
-$ forge build
+* Dynamic fee calculation during swaps
+* Uniswap v4 Hook integration
+* External market data support
+* Pluggable fee calculation engine
+* BeforeSwap and AfterSwap hook execution
+* Full integration test coverage
+* Modular architecture for future extensions
+
+---
+
+## Architecture
+
+```text
+User Swap
+    │
+    ▼
+PoolManager
+    │
+    ▼
+HookShield.beforeSwap()
+    │
+    ├── Fetch Market Data
+    │
+    ├── Calculate Volatility
+    │
+    ├── Compute Dynamic Fee
+    │
+    ▼
+Return Fee Override
+    │
+    ▼
+Swap Execution
+    │
+    ▼
+HookShield.afterSwap()
 ```
 
-### Test
+### Components
 
-```shell
-$ forge test
+#### HookShield
+
+Core hook contract responsible for:
+
+* Intercepting swap execution
+* Fetching market data
+* Computing dynamic fees
+* Returning fee overrides to the PoolManager
+
+#### MarketData Provider
+
+Provides external market information such as:
+
+* Asset price
+* Market volatility
+* Additional risk metrics
+
+#### FeeCalculator
+
+Computes the swap fee using:
+
+* Trade size
+* Volatility
+* Custom fee logic
+
+---
+
+## Dynamic Fee Model
+
+Current fee calculation:
+
+```solidity
+fee = (tradeSize / 1e15 + volatility) % 5000;
 ```
 
-### Format
+Inputs:
 
-```shell
-$ forge fmt
+* Trade Size
+* Market Volatility
+
+Output:
+
+* Dynamic LP Fee
+
+The fee model is intentionally modular and can be replaced with more sophisticated risk models.
+
+---
+
+## Project Structure
+
+```text
+src/
+ ├── HookShield.sol
+
+test/
+ ├── Integration/
+ │    └── HookShieldFullSwap.test.t.sol
+
+mocks/
+ ├── MarketDataMock
+ ├── FeeCalculatorMock
+ └── MockERC20
 ```
 
-### Gas Snapshots
+---
 
-```shell
-$ forge snapshot
+## Testing
+
+The integration test performs the complete lifecycle:
+
+1. Deploy PoolManager
+2. Deploy HookShield
+3. Initialize Pool
+4. Add Liquidity
+5. Execute Swap
+6. Trigger beforeSwap Hook
+7. Compute Dynamic Fee
+8. Complete Swap Successfully
+
+Run tests:
+
+```bash
+forge test -vvvv
 ```
 
-### Anvil
+Build:
 
-```shell
-$ anvil
+```bash
+forge build
 ```
 
-### Deploy
+---
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+## Technologies Used
 
-### Cast
+* Solidity 0.8.24
+* Foundry
+* Uniswap v4 Core
+* Uniswap v4 Periphery
+* OpenZeppelin Contracts
 
-```shell
-$ cast <subcommand>
-```
+---
 
-### Help
+## Future Improvements
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+* Oracle integration
+* Volatility-based fee curves
+* Multi-asset support
+* Dynamic liquidity incentives
+* Risk-aware routing
+* Machine learning fee strategies
+
+---
+
+## Learning Outcomes
+
+This project explores several advanced Uniswap v4 concepts:
+
+* Hook architecture
+* PoolManager interactions
+* Dynamic fee overrides
+* Unlock callback flow
+* Liquidity provisioning
+* Swap settlement
+* End-to-end integration testing
+
+---
+
+## License
+
+MIT
