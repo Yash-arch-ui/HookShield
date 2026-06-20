@@ -18,7 +18,8 @@ contract HookShieldIntegrationTest is Test {
     MockERC20 token0;
     MockERC20 token1;
     address user = address(0xBEEF);
-    uint160 permissions =Hooks.BEFORE_SWAP_FLAG |Hooks.AFTER_SWAP_FLAG;
+    uint160 permissions = Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG;
+
     function setUp() public {
         poolManager = new PoolManager(address(this));
 
@@ -27,32 +28,22 @@ contract HookShieldIntegrationTest is Test {
 
         token0.mint(user, 1e24);
         token1.mint(user, 1e24);
-      
-        hook =  HookShield(_deployHook());
-         require(
-        Hooks.isValidHookAddress(IHooks(address(hook)), 0),
-        "INVALID_HOOK"
-    );
-    
+
+        hook = HookShield(_deployHook());
+        require(Hooks.isValidHookAddress(IHooks(address(hook)), 0), "INVALID_HOOK");
     }
-    function _deployHook() internal returns (HookShield hookAddr){
-      uint160 flags = uint160(
-        Hooks.BEFORE_SWAP_FLAG |
-        Hooks.AFTER_SWAP_FLAG
-    );
 
-    bytes memory constructorArgs = abi.encode( address(poolManager), address(this) );
+    function _deployHook() internal returns (HookShield hookAddr) {
+        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
 
-    (address hookAddress, bytes32 salt) = HookMiner.find(
-        address(this),
-        flags,
-        type(HookShield).creationCode,
-        constructorArgs
-    );
+        bytes memory constructorArgs = abi.encode(address(poolManager), address(this));
 
-    require(hookAddress != address(0), "HookMiner failed");
+        (address hookAddress, bytes32 salt) =
+            HookMiner.find(address(this), flags, type(HookShield).creationCode, constructorArgs);
 
-    hookAddr = HookShield(hookAddress);
+        require(hookAddress != address(0), "HookMiner failed");
+
+        hookAddr = HookShield(hookAddress);
     }
 
     function test_init_pool() public {
@@ -70,25 +61,16 @@ contract HookShieldIntegrationTest is Test {
     }
 }
 
-
 /* ---------------- MOCKS ---------------- */
 
 contract MarketDataMock {
-    function getLatestMarketData()
-        external
-        pure
-        returns (int256 price, int256 vol, int256, int256)
-    {
+    function getLatestMarketData() external pure returns (int256 price, int256 vol, int256, int256) {
         return (2000e18, 50e18, 0, 0);
     }
 }
 
 contract FeeCalculatorMock {
-    function calculateFee(uint256 tradeSize, uint256 volatility)
-        external
-        pure
-        returns (uint24)
-    {
+    function calculateFee(uint256 tradeSize, uint256 volatility) external pure returns (uint24) {
         return uint24((tradeSize / 1e15 + volatility) % 5000);
     }
 }

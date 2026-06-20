@@ -13,8 +13,7 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {HookMiner} from "v4-periphery/test/shared/HookMiner.sol";
 
 contract Deploy is Script {
-       function run() external {
-
+    function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(pk);
 
@@ -28,23 +27,11 @@ contract Deploy is Script {
         // 3. HOOK BYTECODE
         bytes memory bytecode = type(HookShield).creationCode;
 
-        uint160 flags =
-            uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
+        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
 
-        bytes memory constructorArgs =
-            abi.encode(
-                marketData,
-                feeCalculator,
-                IPoolManager(poolManager)
-            );
+        bytes memory constructorArgs = abi.encode(marketData, feeCalculator, IPoolManager(poolManager));
 
-        (address hookAddress,) =
-            HookMiner.find(
-                address(this),
-                flags,
-                bytecode,
-                constructorArgs
-            );
+        (address hookAddress,) = HookMiner.find(address(this), flags, bytecode, constructorArgs);
 
         HookShield hook = HookShield(hookAddress);
 

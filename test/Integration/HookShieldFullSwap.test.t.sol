@@ -17,6 +17,7 @@ import {HookShield} from "../../src/HookShield.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 import {PoolModifyLiquidityTest} from "v4-core/test/PoolModifyLiquidityTest.sol";
+
 contract HookShieldFullSwapTest is Test {
     PoolManager poolManager;
     HookShield hook;
@@ -32,8 +33,8 @@ contract HookShieldFullSwapTest is Test {
     function setUp() public {
         poolManager = new PoolManager(address(this));
 
-        token0 = new MockERC20("T0","T0");
-        token1 = new MockERC20("T1","T1");
+        token0 = new MockERC20("T0", "T0");
+        token1 = new MockERC20("T1", "T1");
 
         token0.mint(user, 1e24);
         token1.mint(user, 1e24);
@@ -41,50 +42,36 @@ contract HookShieldFullSwapTest is Test {
         MarketDataMock market = new MarketDataMock();
         FeeCalculatorMock fee = new FeeCalculatorMock();
 
-
         // -------------------------
         // 1. Hook flags
         // -------------------------
-        uint160 flags = uint160(
-            Hooks.BEFORE_SWAP_FLAG |
-            Hooks.AFTER_SWAP_FLAG
-        );
+        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
 
         // -------------------------
         // 2. Constructor args MUST match HookShield
         // -------------------------
-        bytes memory constructorArgs = abi.encode(
-         address(market), address(fee), IPoolManager(address(poolManager))
-        );
+        bytes memory constructorArgs = abi.encode(address(market), address(fee), IPoolManager(address(poolManager)));
 
         bytes memory bytecode = type(HookShield).creationCode;
 
         // -------------------------
         // 3. HookMiner
         // -------------------------
-        (address hookAddress, bytes32 salt) =
-            HookMiner.find(address(this), flags, bytecode, constructorArgs);
+        (address hookAddress, bytes32 salt) = HookMiner.find(address(this), flags, bytecode, constructorArgs);
 
-     hook = new HookShield{salt: salt}(
-            address(market),
-            address(fee),
-            IPoolManager(address(poolManager))
-        );
+        hook = new HookShield{salt: salt}(address(market), address(fee), IPoolManager(address(poolManager)));
 
         // -------------------------
         // 4. VALIDATE HOOK ADDRESS
         // -------------------------
-        require(
-            Hooks.isValidHookAddress(IHooks(address(hook)), 0),
-            "INVALID_HOOK"
-        );
+        require(Hooks.isValidHookAddress(IHooks(address(hook)), 0), "INVALID_HOOK");
 
         // -------------------------
         // 5. Swap router
         // -------------------------
-        swapRouter =new PoolSwapTest(IPoolManager(address(poolManager)));
+        swapRouter = new PoolSwapTest(IPoolManager(address(poolManager)));
 
-        liquidityRouter =new PoolModifyLiquidityTest(IPoolManager(address(poolManager)));
+        liquidityRouter = new PoolModifyLiquidityTest(IPoolManager(address(poolManager)));
 
         // -------------------------
         // 6. approvals
@@ -110,52 +97,32 @@ contract HookShieldFullSwapTest is Test {
             hooks: IHooks(address(hook))
         });
 
-        poolManager.initialize(
-            key,
-            79228162514264337593543950336
-        );
+        poolManager.initialize(key, 79228162514264337593543950336);
         ModifyLiquidityParams memory lpParams =
-    ModifyLiquidityParams({
-        tickLower: -887220,
-        tickUpper: 887220,
-        liquidityDelta: 1e12,
-        salt: bytes32(0)
-    });
+            ModifyLiquidityParams({tickLower: -887220, tickUpper: 887220, liquidityDelta: 1e12, salt: bytes32(0)});
 
         // -------------------------
         // Swap params
         // -------------------------
-SwapParams memory params = SwapParams({
-    zeroForOne: true,
-    amountSpecified: -1e16,
-    sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-});
-         
-         vm.startPrank(user);
-         liquidityRouter.modifyLiquidity(
-    key,
-    lpParams,
-    ""
-);
-   
-vm.stopPrank();
+        SwapParams memory params =
+            SwapParams({zeroForOne: true, amountSpecified: -1e16, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1});
+
+        vm.startPrank(user);
+        liquidityRouter.modifyLiquidity(key, lpParams, "");
+
+        vm.stopPrank();
         // Execute swap via unlock
 
-        PoolSwapTest.TestSettings memory settings = PoolSwapTest.TestSettings({
-        takeClaims: false,
-        settleUsingBurn: false});
+        PoolSwapTest.TestSettings memory settings =
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
 
-         vm.startPrank(user);
+        vm.startPrank(user);
 
-           swapRouter.swap(  key, params, settings, ""
-);
+        swapRouter.swap(key, params, settings, "");
 
-vm.stopPrank();
-        
+        vm.stopPrank();
     }
 }
-
-
 
 contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
@@ -175,25 +142,16 @@ contract MockERC20 is ERC20 {
     function totalSupply() public view virtual override returns (uint256) {
         return super.totalSupply();
     }
-
 }
 
 contract MarketDataMock {
-    function getLatestMarketData()
-        external
-        pure
-        returns (int256 price, int256 vol, int256, int256)
-    {
+    function getLatestMarketData() external pure returns (int256 price, int256 vol, int256, int256) {
         return (2000e18, 50e18, 0, 0);
     }
 }
 
 contract FeeCalculatorMock {
-    function calculateFee(uint256 tradeSize, uint256 volatility)
-        external
-        pure
-        returns (uint24)
-    {
+    function calculateFee(uint256 tradeSize, uint256 volatility) external pure returns (uint24) {
         return uint24((tradeSize / 1e15 + volatility) % 5000);
     }
 }
