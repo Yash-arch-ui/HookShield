@@ -8,7 +8,8 @@ import {BeforeSwapDelta} from "v4-core/types/BeforeSwapDelta.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 
 import {SwapParams, ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol";
-
+import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
+import {BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol"; 
 import {MarketData} from "./MarketData.sol";
 import {FeeCalculator} from "./FeeCalculator.sol";
 
@@ -18,7 +19,7 @@ contract HookShield {
     FeeCalculator public feeCalculator;
 
     uint24 public latestFee;
-
+    bool public lastSwapTriggered;
     constructor(address _marketData, address _feeCalculator) {
         marketData = MarketData(_marketData);
         feeCalculator = FeeCalculator(_feeCalculator);
@@ -30,7 +31,8 @@ contract HookShield {
     function beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
         external
         returns (bytes4, BeforeSwapDelta, uint24)
-    {
+    {   
+        lastSwapTriggered=true;
         // 1. Get market data
         (int256 priceRaw, int256 volRaw,,) = marketData.getLatestMarketData();
         uint256 price = uint256(priceRaw);
@@ -46,7 +48,7 @@ contract HookShield {
         latestFee = fee;
 
         // 3. Return fee to PoolManager
-        return (this.beforeSwap.selector, BeforeSwapDelta.wrap(0), fee);
+       return(IHooks.beforeSwap.selector,BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
     }
 
     // =========================
