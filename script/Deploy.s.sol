@@ -14,6 +14,7 @@ import {HookMiner} from "v4-periphery/test/shared/HookMiner.sol";
 
 contract Deploy is Script {
     function run() external {
+        address deployer = msg.sender;
         uint256 pk = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(pk);
 
@@ -22,7 +23,7 @@ contract Deploy is Script {
         FeeCalculator feeCalculator = new FeeCalculator();
 
         // 2. USE EXISTING POOLMANAGER (FROM ANVIL / TESTS)
-        address poolManager = vm.envAddress("POOL_MANAGER");
+        address poolManager = 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512;
 
         // 3. HOOK BYTECODE
         bytes memory bytecode = type(HookShield).creationCode;
@@ -31,7 +32,7 @@ contract Deploy is Script {
 
         bytes memory constructorArgs = abi.encode(marketData, feeCalculator, IPoolManager(poolManager));
 
-        (address hookAddress,) = HookMiner.find(address(this), flags, bytecode, constructorArgs);
+        (address hookAddress,) = HookMiner.find(deployer, flags, bytecode, constructorArgs);
 
         HookShield hook = HookShield(hookAddress);
 
