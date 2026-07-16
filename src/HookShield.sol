@@ -22,6 +22,11 @@ contract HookShield is IHooks {
     uint24 public latestFee;
     bool public lastSwapTriggered;
 
+    modifier onlyPoolManager(){
+        require(msg.sender == address(poolManager),"NOT_MANAGER");
+        _;
+    }
+
     constructor(address _marketData, address _feeCalculator, IPoolManager _poolManager) {
         marketData = MarketData(_marketData);
         feeCalculator = FeeCalculator(_feeCalculator);
@@ -121,13 +126,13 @@ contract HookShield is IHooks {
     function getHookPermissions() public pure returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
-            afterInitialize: true,
+            afterInitialize: false,
             beforeAddLiquidity: false,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
             beforeSwap: true,
-            afterSwap: true,
+            afterSwap: false,
             beforeDonate: false,
             afterDonate: false,
             beforeSwapReturnDelta: false,
@@ -137,3 +142,6 @@ contract HookShield is IHooks {
         });
     }
 }
+/*
+
+*/
