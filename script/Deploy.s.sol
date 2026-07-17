@@ -40,13 +40,11 @@ contract Deploy is Script {
         bytes memory constructorArgs = abi.encode(marketData, feeCalculator, IPoolManager(poolManager));
 
         // 4. MINE a salt so the deployed address encodes the right flags.
-        (address hookAddress, bytes32 salt) =
-            HookMiner.find(CREATE2_DEPLOYER, flags, bytecode, constructorArgs);
+        (address hookAddress, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, bytecode, constructorArgs);
 
         // 5. ACTUALLY DEPLOY at that mined address using the salt.
-        HookShield hook = new HookShield{salt: salt}(
-            address(marketData), address(feeCalculator), IPoolManager(poolManager)
-        );
+        HookShield hook =
+            new HookShield{salt: salt}(address(marketData), address(feeCalculator), IPoolManager(poolManager));
 
         require(address(hook) == hookAddress, "DeployScript: hook address mismatch");
 

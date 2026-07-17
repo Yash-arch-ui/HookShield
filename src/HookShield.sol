@@ -22,8 +22,8 @@ contract HookShield is IHooks {
     uint24 public latestFee;
     bool public lastSwapTriggered;
 
-    modifier onlyPoolManager(){
-        require(msg.sender == address(poolManager),"NOT_MANAGER");
+    modifier onlyPoolManager() {
+        require(msg.sender == address(poolManager), "NOT_MANAGER");
         _;
     }
 
