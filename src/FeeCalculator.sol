@@ -100,6 +100,7 @@ contract FeeCalculator {
          * 500 ETH, 120%
          * -> ~9666
          */
+        // FEE = BASE_FEE + ((riskScore*500)/ SCALE);
         uint256 fee = BASE_FEE + ((riskScore * 500) / SCALE);
 
         if (fee > MAX_FEE) {

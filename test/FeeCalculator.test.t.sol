@@ -6,7 +6,7 @@ import "../src/FeeCalculator.sol";
 
 contract FeeCalculatorTest is Test {
     FeeCalculator feeCalculator;
-
+    uint256 constant PCT = 1_000; // 1% = 1_000 in this contract's volatility units
     function setUp() public {
         feeCalculator = new FeeCalculator();
     }
@@ -16,7 +16,7 @@ contract FeeCalculatorTest is Test {
     // ---------------------------
 
     function test_LowRiskTrade() public view {
-        uint24 fee = feeCalculator.calculateFee(10 ether, 20);
+        uint24 fee = feeCalculator.calculateFee(10 ether, 20*PCT);
 
         console2.log("LOW fee", fee);
 
@@ -25,7 +25,7 @@ contract FeeCalculatorTest is Test {
     }
 
     function test_NormalRiskTrade() public view {
-        uint24 fee = feeCalculator.calculateFee(150 ether, 60);
+        uint24 fee = feeCalculator.calculateFee(150 ether, 60*PCT);
 
         console2.log("MEDIUM fee", fee);
 
@@ -34,7 +34,7 @@ contract FeeCalculatorTest is Test {
     }
 
     function test_HighRiskTrade() public view {
-        uint24 fee = feeCalculator.calculateFee(500 ether, 120);
+        uint24 fee = feeCalculator.calculateFee(500 ether, 120*PCT);
 
         console2.log("HIGH fee", fee);
 
@@ -47,9 +47,9 @@ contract FeeCalculatorTest is Test {
     // ---------------------------
 
     function test_FeeOrdering() public view {
-        uint24 low = feeCalculator.calculateFee(10 ether, 20000);
-        uint24 medium = feeCalculator.calculateFee(150 ether, 60000);
-        uint24 high = feeCalculator.calculateFee(500 ether, 120000);
+        uint24 low = feeCalculator.calculateFee(10 ether, 20*PCT);
+        uint24 medium = feeCalculator.calculateFee(150 ether, 60*PCT);
+        uint24 high = feeCalculator.calculateFee(500 ether, 120*PCT);
 
         console2.log("LOW", low);
         console2.log("MEDIUM", medium);
@@ -64,11 +64,13 @@ contract FeeCalculatorTest is Test {
     // BOUNDARY TESTS
     // ---------------------------
 
-    function test_FeeBounds() public view {
-        uint24 fee = feeCalculator.calculateFee(1 ether, 1);
-
-        assertGe(fee, 500); // MIN_FEE
-        assertLe(fee, 10000); // MAX_FEE
+    function test_FeeClampsToMax_WhenRiskIsExtreme() public view{
+        uint24 fee = feeCalculator.calculateFee(1000 ether, 500*PCT);
+        assertEq(fee, feeCalculator.MAX_FEE());  
+    }
+    function test_FeeClampsToMin_WhenRiskIsNegligible() public view {
+        uint24 fee = feeCalculator.calculateFee(1,1);
+        assertEq(fee, feeCalculator.BASE_FEE());
     }
 
     // ---------------------------
@@ -76,12 +78,26 @@ contract FeeCalculatorTest is Test {
     // ---------------------------
 
     function test_Fuzz_FeeStability(uint256 size, uint256 vol) public view {
-        size = bound(size, 1 ether, 1000 ether);
-        vol = bound(vol, 1, 200);
+        size = bound(size, 1 ether, 1_000_000 ether);
+        vol = bound(vol, 1, 500*PCT);
 
         uint24 fee = feeCalculator.calculateFee(size, vol);
 
-        assertGe(fee, 500);
-        assertLe(fee, 10000);
+        assertGe(fee, feeCalculator.BASE_FEE());
+        assertLe(fee, feeCalculator.BASE_FEE());
     }
+    function test_RevertsOnZeroTradeSize() public {
+    vm.expectRevert(FeeCalculator.FeeCalculator__InvalidTradeSize.selector);
+    feeCalculator.calculateFee(0, 60_000);
+}
+
+function test_RevertsOnVolatilityAboveMax() public {
+    vm.expectRevert(FeeCalculator.FeeCalculator__InvalidVolatility.selector);
+    feeCalculator.calculateFee(150 ether, 500_001);
+}
+
+function test_MaxVolatilityBoundaryAccepted() public view {
+    // 500_000 itself should NOT revert
+    feeCalculator.calculateFee(150 ether, 500_000);
+}
 }
