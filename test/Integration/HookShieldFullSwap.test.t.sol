@@ -38,7 +38,7 @@ contract HookShieldFullSwapTest is Test {
 
         tokenA = new MockERC20("T0", "T0");
         tokenB = new MockERC20("T1", "T1");
-         if (address(tokenA) < address(tokenB)) {
+        if (address(tokenA) < address(tokenB)) {
             token0 = tokenA;
             token1 = tokenB;
         } else {
@@ -73,7 +73,7 @@ contract HookShieldFullSwapTest is Test {
         // -------------------------
         // 4. VALIDATE HOOK ADDRESS
         // -------------------------
-         Hooks.validateHookPermissions(
+        Hooks.validateHookPermissions(
             IHooks(address(hook)),
             Hooks.Permissions({
                 beforeInitialize: false,
