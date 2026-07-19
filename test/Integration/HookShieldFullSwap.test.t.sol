@@ -11,6 +11,7 @@ import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
 import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {HookMiner} from "v4-periphery/test/shared/HookMiner.sol";
 import {HookShield} from "../../src/HookShield.sol";
@@ -23,6 +24,8 @@ contract HookShieldFullSwapTest is Test {
     HookShield hook;
     PoolSwapTest swapRouter;
     PoolModifyLiquidityTest liquidityRouter;
+    MockERC20 tokenA;
+    MockERC20 tokenB;
     MockERC20 token0;
     MockERC20 token1;
 
@@ -33,9 +36,15 @@ contract HookShieldFullSwapTest is Test {
     function setUp() public {
         poolManager = new PoolManager(address(this));
 
-        token0 = new MockERC20("T0", "T0");
-        token1 = new MockERC20("T1", "T1");
-
+        tokenA = new MockERC20("T0", "T0");
+        tokenB = new MockERC20("T1", "T1");
+         if (address(tokenA) < address(tokenB)) {
+            token0 = tokenA;
+            token1 = tokenB;
+        } else {
+            token0 = tokenB;
+            token1 = tokenA;
+        }
         token0.mint(user, 1e24);
         token1.mint(user, 1e24);
 
@@ -45,12 +54,12 @@ contract HookShieldFullSwapTest is Test {
         // -------------------------
         // 1. Hook flags
         // -------------------------
-        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
+        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
 
         // -------------------------
         // 2. Constructor args MUST match HookShield
         // -------------------------
-        bytes memory constructorArgs = abi.encode(address(market), address(fee), IPoolManager(address(poolManager)));
+        bytes memory constructorArgs = abi.encode(address(market), address(fee), (address(poolManager)));
 
         bytes memory bytecode = type(HookShield).creationCode;
 
@@ -60,11 +69,29 @@ contract HookShieldFullSwapTest is Test {
         (address hookAddress, bytes32 salt) = HookMiner.find(address(this), flags, bytecode, constructorArgs);
 
         hook = new HookShield{salt: salt}(address(market), address(fee), IPoolManager(address(poolManager)));
-
+        require(address(hook) == hookAddress, "HOOK_ADDRESS_MISMATCH");
         // -------------------------
         // 4. VALIDATE HOOK ADDRESS
         // -------------------------
-        require(Hooks.isValidHookAddress(IHooks(address(hook)), 0), "INVALID_HOOK");
+         Hooks.validateHookPermissions(
+            IHooks(address(hook)),
+            Hooks.Permissions({
+                beforeInitialize: false,
+                afterInitialize: false,
+                beforeAddLiquidity: false,
+                afterAddLiquidity: false,
+                beforeRemoveLiquidity: false,
+                afterRemoveLiquidity: false,
+                beforeSwap: true,
+                afterSwap: false,
+                beforeDonate: false,
+                afterDonate: false,
+                beforeSwapReturnDelta: false,
+                afterSwapReturnDelta: false,
+                afterAddLiquidityReturnDelta: false,
+                afterRemoveLiquidityReturnDelta: false
+            })
+        );
 
         // -------------------------
         // 5. Swap router
@@ -92,7 +119,7 @@ contract HookShieldFullSwapTest is Test {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(token0)),
             currency1: Currency.wrap(address(token1)),
-            fee: 3000,
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
         });
@@ -145,8 +172,8 @@ contract MockERC20 is ERC20 {
 }
 
 contract MarketDataMock {
-    function getLatestMarketData() external pure returns (int256 price, int256 vol, int256, int256) {
-        return (2000e18, 50e18, 0, 0);
+    function getLatestMarketData() external view returns (int256 price, int256 vol, int256, int256) {
+        return (2000e18, 50e18, 0, int256(block.timestamp));
     }
 }
 

@@ -23,7 +23,7 @@ contract MarketDataTest is Test {
         assertGt(price, 0);
     }
 
-    function test_GetEthUsdVolatility() public {
+    function test_GetEthUsdVolatility() public view {
         int256 volatility = marketData.getEthUsdVol();
 
         console2.log("ETH/USD Volatility:");
@@ -32,7 +32,7 @@ contract MarketDataTest is Test {
         assertGt(volatility, 0);
     }
 
-    function test_GetLatestMarketData() public {
+    function test_GetLatestMarketData() public view {
         (int256 price, int256 volatility, uint8 priceDecimals, uint8 volDecimals) = marketData.getLatestMarketData();
 
         console2.log("Price:", uint256(price));

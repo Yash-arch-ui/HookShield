@@ -84,7 +84,7 @@ contract FeeCalculatorTest is Test {
         uint24 fee = feeCalculator.calculateFee(size, vol);
 
         assertGe(fee, feeCalculator.BASE_FEE());
-        assertLe(fee, feeCalculator.BASE_FEE());
+        assertLe(fee, feeCalculator.MAX_FEE());
     }
     function test_RevertsOnZeroTradeSize() public {
     vm.expectRevert(FeeCalculator.FeeCalculator__InvalidTradeSize.selector);
