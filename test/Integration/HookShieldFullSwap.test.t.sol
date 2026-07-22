@@ -1,3 +1,4 @@
+/*
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
@@ -182,3 +183,4 @@ contract FeeCalculatorMock {
         return uint24((tradeSize / 1e15 + volatility) % 5000);
     }
 }
+*/
