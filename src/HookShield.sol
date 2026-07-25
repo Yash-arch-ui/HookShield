@@ -14,12 +14,11 @@ import {BeforeSwapDelta} from "v4-core/types/BeforeSwapDelta.sol";
 import {VolatilityStorage} from "./VolatilityStorage.sol";
 import {Volatility} from "./libraries/Volatility.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
-import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";  
-import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";  
-
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 
 contract HookShield is IHooks {
-    using StateLibrary for IPoolManager;   
+    using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
     event DynamicFeeComputed(uint256 tradeSize, uint256 volatility, uint24 fee);
 
@@ -27,7 +26,6 @@ contract HookShield is IHooks {
     FeeCalculator public feeCalculator;
     IPoolManager public poolManager;
     VolatilityStorage public volStorage;
-
 
     uint24 public latestFee;
     bool public lastSwapTriggered;
@@ -41,7 +39,7 @@ contract HookShield is IHooks {
         marketData = MarketData(_marketData);
         feeCalculator = FeeCalculator(_feeCalculator);
         poolManager = _poolManager;
-        volStorage = VolatilityStorage(_volStorage); 
+        volStorage = VolatilityStorage(_volStorage);
     }
 
     // ---------------- BEFORE SWAP ----------------
@@ -73,21 +71,21 @@ contract HookShield is IHooks {
         external
         returns (bytes4, int128)
     {
-            PoolId poolId = key.toId();
+        PoolId poolId = key.toId();
 
-    // 1. Read old state
-    VolatilityStorage.VolatilityState memory oldState = volStorage.getState(poolId);
+        // 1. Read old state
+        VolatilityStorage.VolatilityState memory oldState = volStorage.getState(poolId);
 
-    // 2. Get current sqrtPriceX96 from the pool
-    (uint160 currentSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+        // 2. Get current sqrtPriceX96 from the pool
+        (uint160 currentSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
 
-    // 3. Compute new state (pure math, no storage writes)
-    VolatilityStorage.VolatilityState memory newState = Volatility.compute(oldState, currentSqrtPriceX96);
+        // 3. Compute new state (pure math, no storage writes)
+        VolatilityStorage.VolatilityState memory newState = Volatility.compute(oldState, currentSqrtPriceX96);
 
-    // 4. Write updated state back
-    volStorage.setState(poolId, newState);
+        // 4. Write updated state back
+        volStorage.setState(poolId, newState);
 
-    return (IHooks.afterSwap.selector, 0);
+        return (IHooks.afterSwap.selector, 0);
     }
 
     // ---------------- AFTER ADD LIQUIDITY (FIXED) ----------------

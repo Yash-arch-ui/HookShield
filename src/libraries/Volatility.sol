@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {VolatilityStorage} from "../VolatilityStorage.sol";
+
 library Volatility {
     // ──────────────────────── Constants ────────────────────────
     uint256 internal constant SCALE = 1e18;
@@ -21,17 +22,16 @@ library Volatility {
     ///  oldSqrtPriceX96 The previous sqrtPriceX96.
     ///  newSqrtPriceX96 The current  sqrtPriceX96.
     ///  absReturn The absolute percentage return, scaled by 1e18.
-    function calculateReturn(
-        uint160 oldSqrtPriceX96,
-        uint160 newSqrtPriceX96
-    ) internal pure returns (uint256 absReturn) {
+    function calculateReturn(uint160 oldSqrtPriceX96, uint160 newSqrtPriceX96)
+        internal
+        pure
+        returns (uint256 absReturn)
+    {
         if (oldSqrtPriceX96 == 0) revert Volatility__ZeroOldPrice();
 
         uint256 oldPrice = uint256(oldSqrtPriceX96);
         uint256 newPrice = uint256(newSqrtPriceX96);
-        uint256 diff = newPrice > oldPrice
-            ? newPrice - oldPrice
-            : oldPrice - newPrice;
+        uint256 diff = newPrice > oldPrice ? newPrice - oldPrice : oldPrice - newPrice;
         absReturn = (diff * SCALE) / oldPrice;
     }
 
@@ -42,10 +42,7 @@ library Volatility {
     ///  oldEwma       The previous EWMA volatility (scaled 1e18).
     ///  currentReturn The latest absolute return   (scaled 1e18).
     ///  newEwma      The updated EWMA volatility  (scaled 1e18).
-    function updateEwma(
-        uint256 oldEwma,
-        uint256 currentReturn
-    ) internal pure returns (uint256 newEwma) {
+    function updateEwma(uint256 oldEwma, uint256 currentReturn) internal pure returns (uint256 newEwma) {
         // α · currentReturn  +  (1 − α) · oldEwma
         newEwma = (ALPHA * currentReturn + ONE_MINUS_ALPHA * oldEwma) / SCALE;
     }
@@ -58,16 +55,15 @@ library Volatility {
     ///  oldState        The previous VolatilityState from storage.
     ///  newSqrtPriceX96 The current sqrtPriceX96 after the swap.
     ///  updatedState   The new VolatilityState to be written back by the caller.
-    function compute(
-        VolatilityStorage.VolatilityState memory oldState,
-        uint160 newSqrtPriceX96
-    ) internal view returns (VolatilityStorage.VolatilityState memory updatedState) {
+    function compute(VolatilityStorage.VolatilityState memory oldState, uint160 newSqrtPriceX96)
+        internal
+        view
+        returns (VolatilityStorage.VolatilityState memory updatedState)
+    {
         // ── First-time initialization (no prior price) ──
         if (oldState.lastSqrtPriceX96 == 0) {
             updatedState = VolatilityStorage.VolatilityState({
-                lastSqrtPriceX96: newSqrtPriceX96,
-                ewmaVolatility: 0,
-                lastUpdateBlock: block.number
+                lastSqrtPriceX96: newSqrtPriceX96, ewmaVolatility: 0, lastUpdateBlock: block.number
             });
             return updatedState;
         }
@@ -80,9 +76,7 @@ library Volatility {
 
         // ── Step 3: Build updated state ──
         updatedState = VolatilityStorage.VolatilityState({
-            lastSqrtPriceX96: newSqrtPriceX96,
-            ewmaVolatility: newEwma,
-            lastUpdateBlock: block.number
+            lastSqrtPriceX96: newSqrtPriceX96, ewmaVolatility: newEwma, lastUpdateBlock: block.number
         });
     }
 }
