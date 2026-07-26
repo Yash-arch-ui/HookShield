@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.26;
 
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
@@ -11,8 +11,7 @@ import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta} from "v4-core/types/BeforeSwapDelta.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
-import {VolatilityStorage} from "../VolatilityStorage.sol";
-import {Volatility} from "../libraries/Volatility.sol";
+import {VolatilitySignal} from "../signals/VolatilitySignal.sol";
 
 contract HookShieldHook is IHooks {
     using StateLibrary for IPoolManager;
@@ -21,7 +20,7 @@ contract HookShieldHook is IHooks {
     event DynamicFeeComputed(uint256 tradeSize, uint24 fee);
 
     IPoolManager public poolManager;
-    VolatilityStorage public volStorage;
+    VolatilitySignal public volatilitySignal;
 
     // TEMPORARY: hardcoded until RiskModel + Policy exist
     uint24 public constant STUB_FEE = 3000; // 0.30%
@@ -34,9 +33,9 @@ contract HookShieldHook is IHooks {
         _;
     }
 
-    constructor(IPoolManager _poolManager, address _volStorage) {
+    constructor(IPoolManager _poolManager, address _volatilitySignal) {
         poolManager = _poolManager;
-        volStorage = VolatilityStorage(_volStorage);
+        volatilitySignal = VolatilitySignal(_volatilitySignal);
     }
 
     function beforeSwap(address, PoolKey calldata, SwapParams calldata params, bytes calldata)
@@ -48,7 +47,7 @@ contract HookShieldHook is IHooks {
         uint256 tradeSize =
             params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
 
-        uint24 fee = STUB_FEE;
+        uint24 fee = STUB_FEE; // TODO: replace with riskModel + policy
 
         latestFee = fee;
 
@@ -63,51 +62,50 @@ contract HookShieldHook is IHooks {
     {
         PoolId poolId = key.toId();
 
-        VolatilityStorage.VolatilityState memory oldState = volStorage.getState(poolId);
         (uint160 currentSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        VolatilityStorage.VolatilityState memory newState = Volatility.compute(oldState, currentSqrtPriceX96);
-        volStorage.setState(poolId, newState);
+
+        volatilitySignal.update(poolId, currentSqrtPriceX96);
 
         return (IHooks.afterSwap.selector, 0);
     }
 
     function afterAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, BalanceDelta, BalanceDelta, bytes calldata)
-        external returns (bytes4, BalanceDelta)
+        external pure returns (bytes4, BalanceDelta)
     {
         return (IHooks.afterAddLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     function afterRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, BalanceDelta, BalanceDelta, bytes calldata)
-        external returns (bytes4, BalanceDelta)
+        external pure returns (bytes4, BalanceDelta)
     {
         return (IHooks.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
     }
 
-    function beforeInitialize(address, PoolKey calldata, uint160) external returns (bytes4) {
+    function beforeInitialize(address, PoolKey calldata, uint160) external pure returns (bytes4) {
         return IHooks.beforeInitialize.selector;
     }
 
-    function afterInitialize(address, PoolKey calldata, uint160, int24) external returns (bytes4) {
+    function afterInitialize(address, PoolKey calldata, uint160, int24) external pure returns (bytes4) {
         return IHooks.afterInitialize.selector;
     }
 
     function beforeAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
-        external returns (bytes4)
+        external pure returns (bytes4)
     {
         return IHooks.beforeAddLiquidity.selector;
     }
 
     function beforeRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
-        external returns (bytes4)
+        external pure returns (bytes4)
     {
         return IHooks.beforeRemoveLiquidity.selector;
     }
 
-    function beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external returns (bytes4) {
+    function beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external pure returns (bytes4) {
         return IHooks.beforeDonate.selector;
     }
 
-    function afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external returns (bytes4) {
+    function afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external pure returns (bytes4) {
         return IHooks.afterDonate.selector;
     }
 
