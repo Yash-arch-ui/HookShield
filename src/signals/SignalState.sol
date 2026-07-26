@@ -30,28 +30,28 @@ contract SignalState is Ownable {
         require(value <= 1e18, "out of bounds");
         snapshots[poolId].volatility = value;
         snapshots[poolId].updatedAt = uint64(block.timestamp);
-        snapshots[poolId].validUntil = uint64(block.timestamp + _STALENESS_WINDOW);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
     }
 
     function setInventorySkew(PoolId poolId, uint256 value) external onlyAuthorized {
         require(value <= 1e18, "out of bounds");
         snapshots[poolId].inventorySkew = value;
         snapshots[poolId].updatedAt = uint64(block.timestamp);
-        snapshots[poolId].validUntil = uint64(block.timestamp + _STALENESS_WINDOW);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
     }
 
     function setOracleDivergence(PoolId poolId, uint256 value) external onlyAuthorized {
         require(value <= 1e18, "out of bounds");
         snapshots[poolId].oracleDivergence = value;
         snapshots[poolId].updatedAt = uint64(block.timestamp);
-        snapshots[poolId].validUntil = uint64(block.timestamp + _STALENESS_WINDOW);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
     }
 
     function setWhaleScore(PoolId poolId, uint256 value) external onlyAuthorized {
         require(value <= 1e18, "out of bounds");
         snapshots[poolId].whaleScore = value;
         snapshots[poolId].updatedAt = uint64(block.timestamp);
-        snapshots[poolId].validUntil = uint64(block.timestamp + _STALENESS_WINDOW);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
     }
 
     // --- READ FUNCTION (used by RiskModel) ---
