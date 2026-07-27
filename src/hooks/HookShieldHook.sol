@@ -11,19 +11,21 @@ import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta} from "v4-core/types/BeforeSwapDelta.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+
 import {VolatilitySignal} from "../signals/VolatilitySignal.sol";
+import {IRiskModel} from "../risk/IRiskModel.sol";
+import {IPolicy, PolicyAction} from "../policy/IPolicy.sol";
 
 contract HookShieldHook is IHooks {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
 
-    event DynamicFeeComputed(uint256 tradeSize, uint24 fee);
+    event DynamicFeeComputed(uint256 tradeSize, uint256 riskE18, uint24 fee, uint8 tier);
 
     IPoolManager public poolManager;
     VolatilitySignal public volatilitySignal;
-
-    // TEMPORARY: hardcoded until RiskModel + Policy exist
-    uint24 public constant STUB_FEE = 3000; // 0.30%
+    IRiskModel public riskModel;
+    IPolicy public policy;
 
     uint24 public latestFee;
     bool public lastSwapTriggered;
@@ -33,29 +35,41 @@ contract HookShieldHook is IHooks {
         _;
     }
 
-    constructor(IPoolManager _poolManager, address _volatilitySignal) {
+    constructor(
+        IPoolManager _poolManager,
+        address _volatilitySignal,
+        address _riskModel,
+        address _policy
+    ) {
         poolManager = _poolManager;
         volatilitySignal = VolatilitySignal(_volatilitySignal);
+        riskModel = IRiskModel(_riskModel);
+        policy = IPolicy(_policy);
     }
 
-    function beforeSwap(address, PoolKey calldata, SwapParams calldata params, bytes calldata)
+    // ---------------- BEFORE SWAP ----------------
+    function beforeSwap(address, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         external
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         lastSwapTriggered = true;
 
+        PoolId poolId = key.toId();
+
         uint256 tradeSize =
             params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
 
-        uint24 fee = STUB_FEE; // TODO: replace with riskModel + policy
+        uint256 riskE18 = riskModel.risk(poolId, tradeSize);
+        PolicyAction memory act = policy.action(poolId, riskE18);
 
-        latestFee = fee;
+        latestFee = act.fee;
 
-        emit DynamicFeeComputed(tradeSize, fee);
+        emit DynamicFeeComputed(tradeSize, riskE18, act.fee, act.tier);
 
-        return (IHooks.beforeSwap.selector, BeforeSwapDelta.wrap(0), fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
+        return (IHooks.beforeSwap.selector, BeforeSwapDelta.wrap(0), act.fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
     }
 
+    // ---------------- AFTER SWAP ----------------
     function afterSwap(address, PoolKey calldata key, SwapParams calldata, BalanceDelta, bytes calldata)
         external
         returns (bytes4, int128)
