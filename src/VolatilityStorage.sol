@@ -49,7 +49,6 @@ contract VolatilityStorage {
         _writerSet = true;
     }
 
-
     // ──────────────────────── Read ────────────────────────
 
     /// @notice Returns the full volatility state for a pool.
@@ -76,7 +75,6 @@ contract VolatilityStorage {
     function isInitialized(PoolId poolId) external view returns (bool) {
         return _states[poolId].lastUpdateBlock != 0;
     }
-
 
     // ──────────────────────── Write ────────────────────────
 

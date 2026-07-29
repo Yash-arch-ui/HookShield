@@ -17,10 +17,7 @@ contract WeightedRiskModel is IRiskModel, Ownable {
     uint256 public whaleScoreWeight;
 
     event WeightsUpdated(
-        uint256 volatilityWeight,
-        uint256 inventorySkewWeight,
-        uint256 oracleDivergenceWeight,
-        uint256 whaleScoreWeight
+        uint256 volatilityWeight, uint256 inventorySkewWeight, uint256 oracleDivergenceWeight, uint256 whaleScoreWeight
     );
 
     constructor(
@@ -31,15 +28,19 @@ contract WeightedRiskModel is IRiskModel, Ownable {
         uint256 _whaleScoreWeight
     ) Ownable(msg.sender) {
         require(_signalState != address(0), "zero signalState");
-        _setWeights(
-            _volatilityWeight,
-            _inventorySkewWeight,
-            _oracleDivergenceWeight,
-            _whaleScoreWeight
-        );
+        _setWeights(_volatilityWeight, _inventorySkewWeight, _oracleDivergenceWeight, _whaleScoreWeight);
         signalState = SignalState(_signalState);
     }
-    function risk(PoolId poolId, uint256 /* tradeSize */) external view override returns (uint256 riskE18) {
+
+    function risk(
+        PoolId poolId,
+        uint256 /* tradeSize */
+    )
+        external
+        view
+        override
+        returns (uint256 riskE18)
+    {
         if (signalState.isStale(poolId)) {
             return STALE_FALLBACK_RISK;
         }
@@ -47,27 +48,27 @@ contract WeightedRiskModel is IRiskModel, Ownable {
         SignalSnapshot memory snap = signalState.getSnapshot(poolId);
 
         riskE18 =
-            (snap.volatility * volatilityWeight
-                + snap.inventorySkew * inventorySkewWeight
-                + snap.oracleDivergence * oracleDivergenceWeight
-                + snap.whaleScore * whaleScoreWeight) / SCALE;
+            (snap.volatility
+                    * volatilityWeight
+                    + snap.inventorySkew
+                    * inventorySkewWeight
+                    + snap.oracleDivergence
+                    * oracleDivergenceWeight
+                    + snap.whaleScore
+                    * whaleScoreWeight) / SCALE;
 
         if (riskE18 > SCALE) {
             riskE18 = SCALE;
         }
     }
+
     function setWeights(
         uint256 _volatilityWeight,
         uint256 _inventorySkewWeight,
         uint256 _oracleDivergenceWeight,
         uint256 _whaleScoreWeight
     ) external onlyOwner {
-        _setWeights(
-            _volatilityWeight,
-            _inventorySkewWeight,
-            _oracleDivergenceWeight,
-            _whaleScoreWeight
-        );
+        _setWeights(_volatilityWeight, _inventorySkewWeight, _oracleDivergenceWeight, _whaleScoreWeight);
     }
 
     function _setWeights(

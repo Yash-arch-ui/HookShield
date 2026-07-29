@@ -35,12 +35,7 @@ contract HookShieldHook is IHooks {
         _;
     }
 
-    constructor(
-        IPoolManager _poolManager,
-        address _volatilitySignal,
-        address _riskModel,
-        address _policy
-    ) {
+    constructor(IPoolManager _poolManager, address _volatilitySignal, address _riskModel, address _policy) {
         poolManager = _poolManager;
         volatilitySignal = VolatilitySignal(_volatilitySignal);
         riskModel = IRiskModel(_riskModel);
@@ -83,15 +78,25 @@ contract HookShieldHook is IHooks {
         return (IHooks.afterSwap.selector, 0);
     }
 
-    function afterAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, BalanceDelta, BalanceDelta, bytes calldata)
-        external pure returns (bytes4, BalanceDelta)
-    {
+    function afterAddLiquidity(
+        address,
+        PoolKey calldata,
+        ModifyLiquidityParams calldata,
+        BalanceDelta,
+        BalanceDelta,
+        bytes calldata
+    ) external pure returns (bytes4, BalanceDelta) {
         return (IHooks.afterAddLiquidity.selector, BalanceDelta.wrap(0));
     }
 
-    function afterRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, BalanceDelta, BalanceDelta, bytes calldata)
-        external pure returns (bytes4, BalanceDelta)
-    {
+    function afterRemoveLiquidity(
+        address,
+        PoolKey calldata,
+        ModifyLiquidityParams calldata,
+        BalanceDelta,
+        BalanceDelta,
+        bytes calldata
+    ) external pure returns (bytes4, BalanceDelta) {
         return (IHooks.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
     }
 
@@ -104,13 +109,17 @@ contract HookShieldHook is IHooks {
     }
 
     function beforeAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
-        external pure returns (bytes4)
+        external
+        pure
+        returns (bytes4)
     {
         return IHooks.beforeAddLiquidity.selector;
     }
 
     function beforeRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
-        external pure returns (bytes4)
+        external
+        pure
+        returns (bytes4)
     {
         return IHooks.beforeRemoveLiquidity.selector;
     }

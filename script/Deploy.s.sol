@@ -21,51 +21,34 @@ contract Deploy is Script {
 
         vm.startBroadcast(pk);
 
-        
         SignalState signalState = new SignalState();
         VolatilityStorage volatilityStorage = new VolatilityStorage();
-        VolatilitySignal volatilitySignal = new VolatilitySignal(
-            address(volatilityStorage),
-            address(signalState)
-        );
+        VolatilitySignal volatilitySignal = new VolatilitySignal(address(volatilityStorage), address(signalState));
         volatilityStorage.setWriter(address(volatilitySignal));
         signalState.setAuthorizedWriter(address(volatilitySignal), true);
 
         WeightedRiskModel riskModel = new WeightedRiskModel(
             address(signalState),
-            1e18,   // volatilityWeight
-            0,      // inventorySkewWeight
-            0,      // oracleDivergenceWeight
-            0       // whaleScoreWeight
+            1e18, // volatilityWeight
+            0, // inventorySkewWeight
+            0, // oracleDivergenceWeight
+            0 // whaleScoreWeight
         );
 
         ThresholdPolicy policy = new ThresholdPolicy();
 
-        uint160 flags = uint160(
-            Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
-        );
+        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
 
-        bytes memory constructorArgs = abi.encode(
-            IPoolManager(poolManagerAddr),
-            address(volatilitySignal),
-            address(riskModel),
-            address(policy)
-        );
+        bytes memory constructorArgs =
+            abi.encode(IPoolManager(poolManagerAddr), address(volatilitySignal), address(riskModel), address(policy));
 
         address CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-        (address predictedHookAddr, bytes32 salt) = HookMiner.find(
-            CREATE2_DEPLOYER,
-            flags,
-            type(HookShieldHook).creationCode,
-            constructorArgs
-        );
+        (address predictedHookAddr, bytes32 salt) =
+            HookMiner.find(CREATE2_DEPLOYER, flags, type(HookShieldHook).creationCode, constructorArgs);
 
         HookShieldHook hook = new HookShieldHook{salt: salt}(
-            IPoolManager(poolManagerAddr),
-            address(volatilitySignal),
-            address(riskModel),
-            address(policy)
+            IPoolManager(poolManagerAddr), address(volatilitySignal), address(riskModel), address(policy)
         );
 
         require(address(hook) == predictedHookAddr, "hook address mismatch");

@@ -62,12 +62,7 @@ contract InitializePool is Script {
 
         liquidityRouter.modifyLiquidity(
             poolKey,
-            ModifyLiquidityParams({
-                tickLower: -600,
-                tickUpper: 600,
-                liquidityDelta: 1e18,
-                salt: bytes32(0)
-            }),
+            ModifyLiquidityParams({tickLower: -600, tickUpper: 600, liquidityDelta: 1e18, salt: bytes32(0)}),
             ""
         );
 

@@ -13,16 +13,17 @@ contract VolatilitySignal is ISignal {
         require(_volatilityStorage != address(0), "zero volStorage");
         require(_signalState != address(0), "zero signalState");
         volatilityStorage = VolatilityStorage(_volatilityStorage);
-        signalState= SignalState(_signalState);
+        signalState = SignalState(_signalState);
     }
-    function update( PoolId poolId, uint160 newSqrtPriceX96) external override{
+
+    function update(PoolId poolId, uint160 newSqrtPriceX96) external override {
         VolatilityStorage.VolatilityState memory oldState = volatilityStorage.getState(poolId);
         VolatilityStorage.VolatilityState memory newState = Volatility.compute(oldState, newSqrtPriceX96);
         volatilityStorage.setState(poolId, newState);
         signalState.setVolatility(poolId, newState.ewmaVolatility);
-
     }
-    function compute(PoolId poolId) external view override returns(uint256 value){
+
+    function compute(PoolId poolId) external view override returns (uint256 value) {
         return volatilityStorage.getState(poolId).ewmaVolatility;
     }
 }
