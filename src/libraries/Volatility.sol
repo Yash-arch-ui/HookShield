@@ -23,7 +23,7 @@ library Volatility {
     ///  newSqrtPriceX96 The current  sqrtPriceX96.
     ///  absReturn The absolute percentage return, scaled by 1e18.
     function calculateReturn(uint160 oldSqrtPriceX96, uint160 newSqrtPriceX96)
-        internal
+        public
         pure
         returns (uint256 absReturn)
     {
