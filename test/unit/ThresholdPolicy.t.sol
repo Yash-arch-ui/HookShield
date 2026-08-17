@@ -29,7 +29,7 @@ contract ThresholdPolicyTest is Test {
 
     function test_Action_BoundaryValueAtExactThreshold() public {
         // riskE18 exactly equal to tier1Threshold (0.20e18) — check which side it falls on
-        PolicyAction memory act = policy.action(poolId, 0.20e18);
+        PolicyAction memory act = policy.action(poolId, 0.2e18);
         // your code uses `<`, so exactly 0.20e18 does NOT count as "< tier1Threshold"
         // meaning it falls into tier1, not tier0 — confirm this matches your intent
         assertEq(act.tier, 1);

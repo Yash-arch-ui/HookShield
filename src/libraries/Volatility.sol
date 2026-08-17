@@ -22,11 +22,7 @@ library Volatility {
     ///  oldSqrtPriceX96 The previous sqrtPriceX96.
     ///  newSqrtPriceX96 The current  sqrtPriceX96.
     ///  absReturn The absolute percentage return, scaled by 1e18.
-    function calculateReturn(uint160 oldSqrtPriceX96, uint160 newSqrtPriceX96)
-        public
-        pure
-        returns (uint256 absReturn)
-    {
+    function calculateReturn(uint160 oldSqrtPriceX96, uint160 newSqrtPriceX96) public pure returns (uint256 absReturn) {
         if (oldSqrtPriceX96 == 0) revert Volatility__ZeroOldPrice();
 
         uint256 oldPrice = uint256(oldSqrtPriceX96);

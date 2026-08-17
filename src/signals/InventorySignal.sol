@@ -31,10 +31,8 @@ contract InventorySignal {
         if (newFlow > MAX_FLOW) newFlow = MAX_FLOW;
         if (newFlow < -MAX_FLOW) newFlow = -MAX_FLOW;
 
-        InventoryStorage.InventoryState memory newState = InventoryStorage.InventoryState({
-            netFlow: newFlow,
-            lastUpdateBlock: block.number
-        });
+        InventoryStorage.InventoryState memory newState =
+            InventoryStorage.InventoryState({netFlow: newFlow, lastUpdateBlock: block.number});
 
         inventoryStorage.setState(poolId, newState);
 

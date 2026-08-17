@@ -16,10 +16,10 @@ contract WeightedRiskModelTest is Test {
 
         riskModel = new WeightedRiskModel(
             address(signalState),
-            1e18,  // volatilityWeight
-            0,     // inventorySkewWeight
-            0,     // oracleDivergenceWeight
-            0      // whaleScoreWeight
+            1e18, // volatilityWeight
+            0, // inventorySkewWeight
+            0, // oracleDivergenceWeight
+            0 // whaleScoreWeight
         );
 
         // authorize this test contract to write signals directly (simulating VolatilitySignal)

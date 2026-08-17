@@ -7,7 +7,7 @@ import {PoolId} from "v4-core/types/PoolId.sol";
 /// @notice Tracks net directional swap flow per pool as a proxy for inventory imbalance.
 contract InventoryStorage {
     struct InventoryState {
-        int256 netFlow;          // positive = more zeroForOne swaps, negative = more oneForZero
+        int256 netFlow; // positive = more zeroForOne swaps, negative = more oneForZero
         uint256 lastUpdateBlock;
     }
 
