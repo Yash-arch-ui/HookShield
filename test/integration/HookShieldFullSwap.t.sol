@@ -143,9 +143,7 @@ contract HookShieldFullSwapTest is Test {
     /// @notice A single swap on a fresh pool. Volatility was seeded to 0, so the risk model
     ///         returns 0 and the policy charges the base tier fee (3000, 0.30%).
     function test_FirstSwap_UsesBaseFee() public {
-        _swap(
-            SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1})
-        );
+        _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
 
         assertEq(hook.latestFee(), 3000, "first swap should use the base tier fee (volatility is 0)");
     }
@@ -167,9 +165,7 @@ contract HookShieldFullSwapTest is Test {
             );
         }
 
-        assertGt(
-            volatilityStorage.getEwmaVolatility(poolId), 0, "EWMA volatility should be greater than 0"
-        );
+        assertGt(volatilityStorage.getEwmaVolatility(poolId), 0, "EWMA volatility should be greater than 0");
     }
 
     /// @notice Larger swaps eventually push the EWMA above the tier-1 threshold (0.2e18), so a
