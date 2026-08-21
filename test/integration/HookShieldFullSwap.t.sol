@@ -19,9 +19,11 @@ import {PoolModifyLiquidityTest} from "v4-core/test/PoolModifyLiquidityTest.sol"
 import {HookMiner} from "v4-periphery/test/shared/HookMiner.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 
-import {SignalState} from "../../src/signals/SignalState.sol";
+import {SignalState, SignalSnapshot} from "../../src/signals/SignalState.sol";
 import {VolatilityStorage} from "../../src/VolatilityStorage.sol";
 import {VolatilitySignal} from "../../src/signals/VolatilitySignal.sol";
+import {InventoryStorage} from "../../src/InventoryStorage.sol";
+import {InventorySignal} from "../../src/signals/InventorySignal.sol";
 import {WeightedRiskModel} from "../../src/risk/WeightedRiskModel.sol";
 import {ThresholdPolicy} from "../../src/policy/ThresholdPolicy.sol";
 import {HookShieldHook} from "../../src/hooks/HookShieldHook.sol";
@@ -44,6 +46,8 @@ contract HookShieldFullSwapTest is Test {
     SignalState signalState;
     VolatilityStorage volatilityStorage;
     VolatilitySignal volatilitySignal;
+    InventoryStorage inventoryStorage;
+    InventorySignal inventorySignal;
     WeightedRiskModel riskModel;
     ThresholdPolicy policy;
     HookShieldHook hook;
@@ -69,6 +73,12 @@ contract HookShieldFullSwapTest is Test {
         volatilityStorage.setWriter(address(volatilitySignal)); // setWriter is one-time, callable by anyone
         signalState.setAuthorizedWriter(address(volatilitySignal), true);
 
+        // 2b. Deploy the inventory storage + signal and wire the same authorization pattern.
+        inventoryStorage = new InventoryStorage();
+        inventorySignal = new InventorySignal(address(inventoryStorage), address(signalState));
+        inventoryStorage.setWriter(address(inventorySignal));
+        signalState.setAuthorizedWriter(address(inventorySignal), true);
+
         // 3. Deploy the risk model, volatility-only for now (vol weight = 1e18, others 0).
         riskModel = new WeightedRiskModel(address(signalState), 1e18, 0, 0, 0);
 
@@ -77,14 +87,23 @@ contract HookShieldFullSwapTest is Test {
 
         // 5. Mine a CREATE2 salt so the hook deploys to an address whose bottom 14 bits carry the
         //    BEFORE_SWAP | AFTER_SWAP permission flags. The deployer is this test contract.
-        bytes memory constructorArgs =
-            abi.encode(address(poolManager), address(volatilitySignal), address(riskModel), address(policy));
+        bytes memory constructorArgs = abi.encode(
+            address(poolManager),
+            address(volatilitySignal),
+            address(inventorySignal),
+            address(riskModel),
+            address(policy)
+        );
         (address hookAddress, bytes32 salt) =
             HookMiner.find(address(this), FLAGS, type(HookShieldHook).creationCode, constructorArgs);
 
         // 6. Deploy the hook with the mined salt and assert it landed where HookMiner predicted.
         hook = new HookShieldHook{salt: salt}(
-            IPoolManager(address(poolManager)), address(volatilitySignal), address(riskModel), address(policy)
+            IPoolManager(address(poolManager)),
+            address(volatilitySignal),
+            address(inventorySignal),
+            address(riskModel),
+            address(policy)
         );
         assertEq(address(hook), hookAddress, "hook did not deploy at the mined CREATE2 address");
 
@@ -188,5 +207,63 @@ contract HookShieldFullSwapTest is Test {
         _swap(SwapParams({zeroForOne: false, amountSpecified: -1e18, sqrtPriceLimitX96: 2 * MIN_SQRT_PRICE}));
 
         assertGt(hook.latestFee(), firstFee, "later swap should pay a higher fee than the first swap");
+    }
+    /// @notice A single zeroForOne swap moves netFlow by +1e18, so the normalised
+    ///         inventorySkew (|netFlow|/MAX_FLOW * 1e18) becomes 0.1e18 (> 0).
+    function test_Swap_UpdatesInventorySkew() public {
+        _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
+
+        SignalSnapshot memory snap = signalState.getSnapshot(poolId);
+        assertGt(snap.inventorySkew, 0, "inventory skew should be positive after a zeroForOne swap");
+    }
+
+    /// @notice Each zeroForOne swap adds FLOW_STEP (1e18) to netFlow; after 10 swaps
+    ///         netFlow hits MAX_FLOW (10e18) and the normalised skew saturates at 1e18.
+    ///         Deep liquidity is added first so the price doesn't pin at the limit.
+    function test_RepeatedSameDirectionSwaps_IncreaseSkewTowardMax() public {
+        liquidityRouter.modifyLiquidity(
+            poolKey,
+            ModifyLiquidityParams({tickLower: -887220, tickUpper: 887220, liquidityDelta: 1000e18, salt: bytes32(0)}),
+            ""
+        );
+
+        uint256 previousSkew;
+
+        for (uint256 i; i < 10; i++) {
+            _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
+
+            SignalSnapshot memory snap = signalState.getSnapshot(poolId);
+            assertGt(snap.inventorySkew, previousSkew, "skew should increase each iteration");
+            assertLe(snap.inventorySkew, 1e18, "skew must never exceed 1e18");
+            previousSkew = snap.inventorySkew;
+        }
+
+        SignalSnapshot memory finalSnap = signalState.getSnapshot(poolId);
+        assertEq(finalSnap.inventorySkew, 1e18, "skew should reach the cap after 10 same-direction swaps");
+    }
+
+    /// @notice Three zeroForOne swaps build netFlow to +3e18 (skew 0.3e18).
+    ///         One opposite-direction swap brings netFlow to +2e18 (skew 0.2e18).
+    ///         Deep liquidity is added first so consecutive same-direction swaps are possible.
+    function test_OppositeDirectionSwap_ReducesSkew() public {
+        liquidityRouter.modifyLiquidity(
+            poolKey,
+            ModifyLiquidityParams({tickLower: -887220, tickUpper: 887220, liquidityDelta: 1000e18, salt: bytes32(0)}),
+            ""
+        );
+
+        for (uint256 i; i < 3; i++) {
+            _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
+        }
+
+        SignalSnapshot memory peakSnap = signalState.getSnapshot(poolId);
+        uint256 peakSkew = peakSnap.inventorySkew;
+        assertEq(peakSkew, 3e17, "3 zeroForOne swaps -> skew = 0.3e18");
+
+        _swap(SwapParams({zeroForOne: false, amountSpecified: -1e17, sqrtPriceLimitX96: MAX_SQRT_PRICE - 1}));
+
+        SignalSnapshot memory afterSnap = signalState.getSnapshot(poolId);
+        assertLt(afterSnap.inventorySkew, peakSkew, "opposite swap should reduce skew");
+        assertEq(afterSnap.inventorySkew, 2e17, "skew should drop to 0.2e18 after one counter-swap");
     }
 }

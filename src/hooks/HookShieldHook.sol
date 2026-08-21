@@ -13,6 +13,7 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 import {VolatilitySignal} from "../signals/VolatilitySignal.sol";
+import {InventorySignal} from "../signals/InventorySignal.sol";
 import {IRiskModel} from "../risk/IRiskModel.sol";
 import {IPolicy, PolicyAction} from "../policy/IPolicy.sol";
 
@@ -24,6 +25,7 @@ contract HookShieldHook is IHooks {
 
     IPoolManager public poolManager;
     VolatilitySignal public volatilitySignal;
+    InventorySignal public inventorySignal;
     IRiskModel public riskModel;
     IPolicy public policy;
 
@@ -35,9 +37,16 @@ contract HookShieldHook is IHooks {
         _;
     }
 
-    constructor(IPoolManager _poolManager, address _volatilitySignal, address _riskModel, address _policy) {
+    constructor(
+        IPoolManager _poolManager,
+        address _volatilitySignal,
+        address _inventorySignal,
+        address _riskModel,
+        address _policy
+    ) {
         poolManager = _poolManager;
         volatilitySignal = VolatilitySignal(_volatilitySignal);
+        inventorySignal = InventorySignal(_inventorySignal);
         riskModel = IRiskModel(_riskModel);
         policy = IPolicy(_policy);
     }
@@ -65,7 +74,7 @@ contract HookShieldHook is IHooks {
     }
 
     // ---------------- AFTER SWAP ----------------
-    function afterSwap(address, PoolKey calldata key, SwapParams calldata, BalanceDelta, bytes calldata)
+    function afterSwap(address, PoolKey calldata key, SwapParams calldata params, BalanceDelta, bytes calldata)
         external
         returns (bytes4, int128)
     {
@@ -74,6 +83,7 @@ contract HookShieldHook is IHooks {
         (uint160 currentSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
 
         volatilitySignal.update(poolId, currentSqrtPriceX96);
+        inventorySignal.update(poolId, params.zeroForOne);
 
         return (IHooks.afterSwap.selector, 0);
     }
