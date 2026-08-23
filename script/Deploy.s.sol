@@ -36,8 +36,8 @@ contract Deploy is Script {
 
         WeightedRiskModel riskModel = new WeightedRiskModel(
             address(signalState),
-            1e18, // volatilityWeight
-            0, // inventorySkewWeight
+            0.6e18, // volatilityWeight
+            0.4e18, // inventorySkewWeight
             0, // oracleDivergenceWeight
             0 // whaleScoreWeight
         );

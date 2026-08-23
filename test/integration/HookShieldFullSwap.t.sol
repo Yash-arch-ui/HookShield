@@ -208,6 +208,7 @@ contract HookShieldFullSwapTest is Test {
 
         assertGt(hook.latestFee(), firstFee, "later swap should pay a higher fee than the first swap");
     }
+
     /// @notice A single zeroForOne swap moves netFlow by +1e18, so the normalised
     ///         inventorySkew (|netFlow|/MAX_FLOW * 1e18) becomes 0.1e18 (> 0).
     function test_Swap_UpdatesInventorySkew() public {
