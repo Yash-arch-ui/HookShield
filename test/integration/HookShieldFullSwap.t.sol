@@ -24,6 +24,7 @@ import {VolatilityStorage} from "../../src/VolatilityStorage.sol";
 import {VolatilitySignal} from "../../src/signals/VolatilitySignal.sol";
 import {InventoryStorage} from "../../src/InventoryStorage.sol";
 import {InventorySignal} from "../../src/signals/InventorySignal.sol";
+import {WhaleScoreSignal} from "../../src/signals/WhaleScoreSignal.sol";
 import {WeightedRiskModel} from "../../src/risk/WeightedRiskModel.sol";
 import {ThresholdPolicy} from "../../src/policy/ThresholdPolicy.sol";
 import {HookShieldHook} from "../../src/hooks/HookShieldHook.sol";
@@ -48,6 +49,7 @@ contract HookShieldFullSwapTest is Test {
     VolatilitySignal volatilitySignal;
     InventoryStorage inventoryStorage;
     InventorySignal inventorySignal;
+    WhaleScoreSignal whaleSignal;
     WeightedRiskModel riskModel;
     ThresholdPolicy policy;
     HookShieldHook hook;
@@ -79,8 +81,14 @@ contract HookShieldFullSwapTest is Test {
         inventoryStorage.setWriter(address(inventorySignal));
         signalState.setAuthorizedWriter(address(inventorySignal), true);
 
-        // 3. Deploy the risk model, volatility-only for now (vol weight = 1e18, others 0).
-        riskModel = new WeightedRiskModel(address(signalState), 1e18, 0, 0, 0);
+        // 2c. Deploy the whale score signal (reads pool state, writes to SignalState) and
+        //     authorize it as a writer.
+        whaleSignal = new WhaleScoreSignal(address(poolManager), address(signalState));
+        signalState.setAuthorizedWriter(address(whaleSignal), true);
+
+        // 3. Deploy the risk model with weights: volatility 0.4, inventory 0.3,
+        //    oracle divergence 0, whale score 0.3.
+        riskModel = new WeightedRiskModel(address(signalState), 0.4e18, 0.3e18, 0, 0.3e18);
 
         // 4. Deploy the fee policy that maps risk to dynamic fee tiers.
         policy = new ThresholdPolicy();
@@ -91,6 +99,7 @@ contract HookShieldFullSwapTest is Test {
             address(poolManager),
             address(volatilitySignal),
             address(inventorySignal),
+            address(whaleSignal),
             address(riskModel),
             address(policy)
         );
@@ -102,6 +111,7 @@ contract HookShieldFullSwapTest is Test {
             IPoolManager(address(poolManager)),
             address(volatilitySignal),
             address(inventorySignal),
+            address(whaleSignal),
             address(riskModel),
             address(policy)
         );
@@ -192,10 +202,12 @@ contract HookShieldFullSwapTest is Test {
     ///         the price at the limit after each large sell, we alternate direction to generate
     ///         the ~100%/50% sqrt-price returns that compound volatility past the threshold.
     function test_HighVolatility_EventuallyTriggersHigherFeeTier() public {
-        // First swap: a large sell of token0. Volatility is 0 -> base fee (3000).
-        _swap(SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
+        // First swap: a SMALL sell of token0. Its own whale impact is modest
+        // (2 * 1e17 / (1e18 + 1e17) ~= 0.18e18 -> weighted 0.3 -> risk ~0.05e18),
+        // so it is charged the base tier fee (3000).
+        _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
         uint24 firstFee = hook.latestFee();
-        assertEq(firstFee, 3000, "first swap should use the base tier fee");
+        assertEq(firstFee, 3000, "small first swap should use the base tier fee");
 
         // Buy back up to 2 * MIN_SQRT_PRICE: another ~100% sqrt-price move -> EWMA ~0.19e18.
         _swap(SwapParams({zeroForOne: false, amountSpecified: -1e18, sqrtPriceLimitX96: 2 * MIN_SQRT_PRICE}));
@@ -203,7 +215,9 @@ contract HookShieldFullSwapTest is Test {
         // Sell back down to the limit: ~50% sqrt-price move -> EWMA ~0.22e18, past tier 1.
         _swap(SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
 
-        // A later swap now observes the elevated volatility and is charged the tier-1 fee (4000).
+        // A later swap now observes the elevated volatility and is charged a higher fee.
+        // Each large (-1e18) swap also saturates its own whale score (risk >= 0.3e18),
+        // guaranteeing at least tier-1 pricing from here on.
         _swap(SwapParams({zeroForOne: false, amountSpecified: -1e18, sqrtPriceLimitX96: 2 * MIN_SQRT_PRICE}));
 
         assertGt(hook.latestFee(), firstFee, "later swap should pay a higher fee than the first swap");
