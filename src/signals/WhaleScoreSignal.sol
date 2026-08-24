@@ -4,7 +4,7 @@ import {PoolId} from "v4-core/types/PoolId.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
-import {SignalState} from "./signals/SignalState.sol";
+import {SignalState} from "./SignalState.sol";
 
 contract WhaleScoreSignal {
     using StateLibrary for IPoolManager;
@@ -23,7 +23,7 @@ contract WhaleScoreSignal {
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint128 liquidity = poolManager.getLiquidity(poolId);
         if (liquidity == 0 || amountIn == 0) {
-            impactE18 = liquidity == 0 ? SCALE : 0;
+            impactE18 = amountIn == 0 ? 0 : SCALE;
             signalState.setWhaleScore(poolId, impactE18);
             return impactE18;
         }
@@ -45,8 +45,8 @@ contract WhaleScoreSignal {
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint128 liquidity = poolManager.getLiquidity(poolId);
 
-        if (liquidity == 0) return SCALE;
         if (amountIn == 0) return 0;
+        if (liquidity == 0) return SCALE;
 
         uint160 sqrtPriceNextX96 =
             SqrtPriceMath.getNextSqrtPriceFromInput(sqrtPriceX96, liquidity, amountIn, zeroForOne);
