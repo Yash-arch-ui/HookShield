@@ -14,6 +14,7 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 import {VolatilitySignal} from "../signals/VolatilitySignal.sol";
 import {InventorySignal} from "../signals/InventorySignal.sol";
+import {WhaleScoreSignal} from "../signals/WhaleScoreSignal.sol";
 import {IRiskModel} from "../risk/IRiskModel.sol";
 import {IPolicy, PolicyAction} from "../policy/IPolicy.sol";
 
@@ -26,6 +27,7 @@ contract HookShieldHook is IHooks {
     IPoolManager public poolManager;
     VolatilitySignal public volatilitySignal;
     InventorySignal public inventorySignal;
+    WhaleScoreSignal public whaleSignal;
     IRiskModel public riskModel;
     IPolicy public policy;
 
@@ -41,12 +43,14 @@ contract HookShieldHook is IHooks {
         IPoolManager _poolManager,
         address _volatilitySignal,
         address _inventorySignal,
+        address _whaleSignal,
         address _riskModel,
         address _policy
     ) {
         poolManager = _poolManager;
         volatilitySignal = VolatilitySignal(_volatilitySignal);
         inventorySignal = InventorySignal(_inventorySignal);
+        whaleSignal = WhaleScoreSignal(_whaleSignal);
         riskModel = IRiskModel(_riskModel);
         policy = IPolicy(_policy);
     }
@@ -62,6 +66,10 @@ contract HookShieldHook is IHooks {
 
         uint256 tradeSize =
             params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
+
+        // Publish the fresh whale score BEFORE reading risk, so this swap's own
+        // price impact is included in the fee charged for it.
+        whaleSignal.update(poolId, tradeSize, params.zeroForOne);
 
         uint256 riskE18 = riskModel.risk(poolId, tradeSize);
         PolicyAction memory act = policy.action(poolId, riskE18);

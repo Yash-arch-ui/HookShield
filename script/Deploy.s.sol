@@ -11,6 +11,7 @@ import {VolatilityStorage} from "../src/VolatilityStorage.sol";
 import {VolatilitySignal} from "../src/signals/VolatilitySignal.sol";
 import {InventoryStorage} from "../src/InventoryStorage.sol";
 import {InventorySignal} from "../src/signals/InventorySignal.sol";
+import {WhaleScoreSignal} from "../src/signals/WhaleScoreSignal.sol";
 import {WeightedRiskModel} from "../src/risk/WeightedRiskModel.sol";
 import {ThresholdPolicy} from "../src/policy/ThresholdPolicy.sol";
 import {HookShieldHook} from "../src/hooks/HookShieldHook.sol";
@@ -34,12 +35,15 @@ contract Deploy is Script {
         inventoryStorage.setWriter(address(inventorySignal));
         signalState.setAuthorizedWriter(address(inventorySignal), true);
 
+        WhaleScoreSignal whaleSignal = new WhaleScoreSignal(poolManagerAddr, address(signalState));
+        signalState.setAuthorizedWriter(address(whaleSignal), true);
+
         WeightedRiskModel riskModel = new WeightedRiskModel(
             address(signalState),
-            0.6e18, // volatilityWeight
-            0.4e18, // inventorySkewWeight
+            0.4e18, // volatilityWeight
+            0.3e18, // inventorySkewWeight
             0, // oracleDivergenceWeight
-            0 // whaleScoreWeight
+            0.3e18 // whaleScoreWeight
         );
 
         ThresholdPolicy policy = new ThresholdPolicy();
@@ -50,6 +54,7 @@ contract Deploy is Script {
             IPoolManager(poolManagerAddr),
             address(volatilitySignal),
             address(inventorySignal),
+            address(whaleSignal),
             address(riskModel),
             address(policy)
         );
@@ -63,6 +68,7 @@ contract Deploy is Script {
             IPoolManager(poolManagerAddr),
             address(volatilitySignal),
             address(inventorySignal),
+            address(whaleSignal),
             address(riskModel),
             address(policy)
         );
@@ -77,6 +83,7 @@ contract Deploy is Script {
         console.log("VolatilitySignal:  ", address(volatilitySignal));
         console.log("InventoryStorage:  ", address(inventoryStorage));
         console.log("InventorySignal:   ", address(inventorySignal));
+        console.log("WhaleScoreSignal:  ", address(whaleSignal));
         console.log("WeightedRiskModel: ", address(riskModel));
         console.log("ThresholdPolicy:   ", address(policy));
         console.log("HookShieldHook:    ", address(hook));
