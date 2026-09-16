@@ -40,7 +40,10 @@ contract MockOracle is IOracle {
 contract MedianOracleTest is Test {
     MedianOracle medianOracle;
 
-    function _deploy3(uint256 p1, uint256 p2, uint256 p3) internal returns (MockOracle o1, MockOracle o2, MockOracle o3) {
+    function _deploy3(uint256 p1, uint256 p2, uint256 p3)
+        internal
+        returns (MockOracle o1, MockOracle o2, MockOracle o3)
+    {
         o1 = new MockOracle(p1);
         o2 = new MockOracle(p2);
         o3 = new MockOracle(p3);

@@ -8,7 +8,12 @@ import {IOracle} from "./IOracle.sol";
 ///         strategy: Median, Average, Min, or Max.
 ///         Sources that revert are excluded. Requires a minimum quorum of valid sources.
 contract CompositeOracle is IOracle {
-    enum Strategy { Median, Average, Min, Max }
+    enum Strategy {
+        Median,
+        Average,
+        Min,
+        Max
+    }
 
     IOracle[] public sources;
     Strategy public strategy;
