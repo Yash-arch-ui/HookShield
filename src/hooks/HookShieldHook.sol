@@ -15,6 +15,7 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {VolatilitySignal} from "../signals/VolatilitySignal.sol";
 import {InventorySignal} from "../signals/InventorySignal.sol";
 import {WhaleScoreSignal} from "../signals/WhaleScoreSignal.sol";
+import {OracleDivergenceSignal} from "../signals/OracleDivergenceSignal.sol";
 import {IRiskModel} from "../risk/IRiskModel.sol";
 import {IPolicy, PolicyAction} from "../policy/IPolicy.sol";
 
@@ -28,6 +29,7 @@ contract HookShieldHook is IHooks {
     VolatilitySignal public volatilitySignal;
     InventorySignal public inventorySignal;
     WhaleScoreSignal public whaleSignal;
+    OracleDivergenceSignal public oracleSignal;
     IRiskModel public riskModel;
     IPolicy public policy;
 
@@ -44,6 +46,7 @@ contract HookShieldHook is IHooks {
         address _volatilitySignal,
         address _inventorySignal,
         address _whaleSignal,
+        address _oracleSignal,
         address _riskModel,
         address _policy
     ) {
@@ -51,6 +54,7 @@ contract HookShieldHook is IHooks {
         volatilitySignal = VolatilitySignal(_volatilitySignal);
         inventorySignal = InventorySignal(_inventorySignal);
         whaleSignal = WhaleScoreSignal(_whaleSignal);
+        oracleSignal = OracleDivergenceSignal(_oracleSignal);
         riskModel = IRiskModel(_riskModel);
         policy = IPolicy(_policy);
     }
@@ -92,6 +96,7 @@ contract HookShieldHook is IHooks {
 
         volatilitySignal.update(poolId, currentSqrtPriceX96);
         inventorySignal.update(poolId, params.zeroForOne);
+        oracleSignal.update(poolId, currentSqrtPriceX96);
 
         return (IHooks.afterSwap.selector, 0);
     }

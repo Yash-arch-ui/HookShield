@@ -12,6 +12,9 @@ import {VolatilitySignal} from "../src/signals/VolatilitySignal.sol";
 import {InventoryStorage} from "../src/InventoryStorage.sol";
 import {InventorySignal} from "../src/signals/InventorySignal.sol";
 import {WhaleScoreSignal} from "../src/signals/WhaleScoreSignal.sol";
+import {OracleDivergenceStorage} from "../src/OracleDivergenceStorage.sol";
+import {ChainlinkOracle} from "../src/oracle/ChainlinkOracle.sol";
+import {OracleDivergenceSignal} from "../src/signals/OracleDivergenceSignal.sol";
 import {WeightedRiskModel} from "../src/risk/WeightedRiskModel.sol";
 import {ThresholdPolicy} from "../src/policy/ThresholdPolicy.sol";
 import {HookShieldHook} from "../src/hooks/HookShieldHook.sol";
@@ -38,11 +41,20 @@ contract Deploy is Script {
         WhaleScoreSignal whaleSignal = new WhaleScoreSignal(poolManagerAddr, address(signalState));
         signalState.setAuthorizedWriter(address(whaleSignal), true);
 
+        OracleDivergenceStorage oracleStorage = new OracleDivergenceStorage();
+        address oracleFeedAddr = vm.envAddress("ORACLE_FEED_ADDRESS");
+        uint256 oracleMaxStaleness = vm.envUint("ORACLE_MAX_STALENESS");
+        ChainlinkOracle chainlinkOracle = new ChainlinkOracle(oracleFeedAddr, oracleMaxStaleness);
+        OracleDivergenceSignal oracleSignal =
+            new OracleDivergenceSignal(address(oracleStorage), address(chainlinkOracle), address(signalState));
+        oracleStorage.setWriter(address(oracleSignal));
+        signalState.setAuthorizedWriter(address(oracleSignal), true);
+
         WeightedRiskModel riskModel = new WeightedRiskModel(
             address(signalState),
-            0.4e18, // volatilityWeight
-            0.3e18, // inventorySkewWeight
-            0, // oracleDivergenceWeight
+            0.3e18, // volatilityWeight
+            0.2e18, // inventorySkewWeight
+            0.2e18, // oracleDivergenceWeight
             0.3e18 // whaleScoreWeight
         );
 
@@ -55,6 +67,7 @@ contract Deploy is Script {
             address(volatilitySignal),
             address(inventorySignal),
             address(whaleSignal),
+            address(oracleSignal),
             address(riskModel),
             address(policy)
         );
@@ -69,6 +82,7 @@ contract Deploy is Script {
             address(volatilitySignal),
             address(inventorySignal),
             address(whaleSignal),
+            address(oracleSignal),
             address(riskModel),
             address(policy)
         );
@@ -84,6 +98,9 @@ contract Deploy is Script {
         console.log("InventoryStorage:  ", address(inventoryStorage));
         console.log("InventorySignal:   ", address(inventorySignal));
         console.log("WhaleScoreSignal:  ", address(whaleSignal));
+        console.log("OracleDivergenceStorage: ", address(oracleStorage));
+        console.log("ChainlinkOracle:  ", address(chainlinkOracle));
+        console.log("OracleDivergenceSignal: ", address(oracleSignal));
         console.log("WeightedRiskModel: ", address(riskModel));
         console.log("ThresholdPolicy:   ", address(policy));
         console.log("HookShieldHook:    ", address(hook));

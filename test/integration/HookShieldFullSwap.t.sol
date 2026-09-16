@@ -18,6 +18,7 @@ import {PoolModifyLiquidityTest} from "v4-core/test/PoolModifyLiquidityTest.sol"
 
 import {HookMiner} from "v4-periphery/test/shared/HookMiner.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
+import {MockAggregatorV3} from "../mocks/MockAggregatorV3.sol";
 
 import {SignalState, SignalSnapshot} from "../../src/signals/SignalState.sol";
 import {VolatilityStorage} from "../../src/VolatilityStorage.sol";
@@ -25,6 +26,9 @@ import {VolatilitySignal} from "../../src/signals/VolatilitySignal.sol";
 import {InventoryStorage} from "../../src/InventoryStorage.sol";
 import {InventorySignal} from "../../src/signals/InventorySignal.sol";
 import {WhaleScoreSignal} from "../../src/signals/WhaleScoreSignal.sol";
+import {OracleDivergenceStorage} from "../../src/OracleDivergenceStorage.sol";
+import {ChainlinkOracle} from "../../src/oracle/ChainlinkOracle.sol";
+import {OracleDivergenceSignal} from "../../src/signals/OracleDivergenceSignal.sol";
 import {WeightedRiskModel} from "../../src/risk/WeightedRiskModel.sol";
 import {ThresholdPolicy} from "../../src/policy/ThresholdPolicy.sol";
 import {HookShieldHook} from "../../src/hooks/HookShieldHook.sol";
@@ -50,6 +54,10 @@ contract HookShieldFullSwapTest is Test {
     InventoryStorage inventoryStorage;
     InventorySignal inventorySignal;
     WhaleScoreSignal whaleSignal;
+    OracleDivergenceStorage oracleStorage;
+    MockAggregatorV3 mockAggregator;
+    ChainlinkOracle chainlinkOracle;
+    OracleDivergenceSignal oracleSignal;
     WeightedRiskModel riskModel;
     ThresholdPolicy policy;
     HookShieldHook hook;
@@ -86,9 +94,18 @@ contract HookShieldFullSwapTest is Test {
         whaleSignal = new WhaleScoreSignal(address(poolManager), address(signalState));
         signalState.setAuthorizedWriter(address(whaleSignal), true);
 
-        // 3. Deploy the risk model with weights: volatility 0.4, inventory 0.3,
-        //    oracle divergence 0, whale score 0.3.
-        riskModel = new WeightedRiskModel(address(signalState), 0.4e18, 0.3e18, 0, 0.3e18);
+        // 2d. Deploy the oracle divergence storage + signal with a mock Chainlink aggregator.
+        oracleStorage = new OracleDivergenceStorage();
+        mockAggregator = new MockAggregatorV3(2000e8, 8); // $2000 with 8 decimals
+        chainlinkOracle = new ChainlinkOracle(address(mockAggregator), 1 hours);
+        oracleSignal =
+            new OracleDivergenceSignal(address(oracleStorage), address(chainlinkOracle), address(signalState));
+        oracleStorage.setWriter(address(oracleSignal));
+        signalState.setAuthorizedWriter(address(oracleSignal), true);
+
+        // 3. Deploy the risk model with weights: volatility 0.3, inventory 0.2,
+        //    oracle divergence 0.2, whale score 0.3.
+        riskModel = new WeightedRiskModel(address(signalState), 0.3e18, 0.2e18, 0.2e18, 0.3e18);
 
         // 4. Deploy the fee policy that maps risk to dynamic fee tiers.
         policy = new ThresholdPolicy();
@@ -100,6 +117,7 @@ contract HookShieldFullSwapTest is Test {
             address(volatilitySignal),
             address(inventorySignal),
             address(whaleSignal),
+            address(oracleSignal),
             address(riskModel),
             address(policy)
         );
@@ -112,6 +130,7 @@ contract HookShieldFullSwapTest is Test {
             address(volatilitySignal),
             address(inventorySignal),
             address(whaleSignal),
+            address(oracleSignal),
             address(riskModel),
             address(policy)
         );
