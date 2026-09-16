@@ -2,6 +2,9 @@
 cache/
 out/
 
+# Rust build artifacts
+target/
+
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/
