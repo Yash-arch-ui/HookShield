@@ -6,6 +6,19 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
 import {SignalState} from "./SignalState.sol";
 
+/// @title WhaleScoreSignal
+/// @notice Stateless, beforeSwap-triggered signal that measures a single swap's
+///         price impact relative to current pool liquidity.  Unlike the storage-backed,
+///         afterSwap-triggered signals (VolatilitySignal, InventorySignal,
+///         OracleDivergenceSignal), WhaleScoreSignal does not maintain its own
+///         per-pool storage — it reads directly from PoolManager.getSlot0() and
+///         getLiquidity(), computes the hypothetical next sqrtPrice, and writes the
+///         resulting impact score into SignalState.setWhaleScore().
+///
+///         It is intentionally called inside beforeSwap (see HookShieldHook) so that
+///         the fee for the CURRENT swap reflects its own whale-level impact.  All
+///         other signals update in afterSwap because they only need to inform
+///         FUTURE swaps.
 contract WhaleScoreSignal {
     using StateLibrary for IPoolManager;
     uint256 public constant SCALE = 1e18;

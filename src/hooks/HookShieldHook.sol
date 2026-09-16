@@ -71,8 +71,23 @@ contract HookShieldHook is IHooks {
         uint256 tradeSize =
             params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
 
-        // Publish the fresh whale score BEFORE reading risk, so this swap's own
-        // price impact is included in the fee charged for it.
+        // ── Whale score: written here in beforeSwap, not afterSwap ──────────────
+        //
+        // WhaleScoreSignal must react to THIS swap's own size relative to current
+        // pool liquidity, because the whole point is to charge a fee that reflects
+        // the price impact this specific swap will cause.  If we computed it in
+        // afterSwap (like Volatility / Inventory / OracleDivergence), we would only
+        // have the post-swap price — too late to influence the fee for THIS swap.
+        //
+        // This creates a same-transaction read-after-write: whaleSignal.update()
+        // writes to SignalState, then riskModel.risk() reads it moments later in the
+        // same beforeSwap call.  This is safe because:
+        //   1. The entire beforeSwap is atomic — no external actor can observe or
+        //      react to the intermediate state.
+        //   2. The written whale score only affects THIS swap's own fee; it cannot
+        //      be exploited by the swapper because the fee is deterministic given
+        //      the trade size and current liquidity — both of which the swapper
+        //      already controls via amountSpecified.
         whaleSignal.update(poolId, tradeSize, params.zeroForOne);
 
         uint256 riskE18 = riskModel.risk(poolId, tradeSize);
