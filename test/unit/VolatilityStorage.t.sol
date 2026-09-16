@@ -49,7 +49,7 @@ contract VolatilityStorageTest is Test {
         assertEq(state.lastUpdateBlock, 1);
     }
 
-    function isInitializedFalseBeforeAnyWrites() public {
+    function testIsInitializedFalseBeforeAnyWrites() public {
         VolatilityStorage.VolatilityState memory state = volStorage.getState(poolId);
         assertEq(state.lastSqrtPriceX96, 0);
         assertEq(state.ewmaVolatility, 0);
