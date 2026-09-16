@@ -33,6 +33,7 @@ import {ChainlinkOracle} from "../../src/oracle/ChainlinkOracle.sol";
 import {OracleDivergenceSignal} from "../../src/signals/OracleDivergenceSignal.sol";
 import {WeightedRiskModel} from "../../src/risk/WeightedRiskModel.sol";
 import {ThresholdPolicy} from "../../src/policy/ThresholdPolicy.sol";
+import {AnalyticsEngine} from "../../src/analytics/AnalyticsEngine.sol";
 import {HookShieldHook} from "../../src/hooks/HookShieldHook.sol";
 
 contract HookShieldHookTest is Test {
@@ -55,6 +56,7 @@ contract HookShieldHookTest is Test {
     OracleDivergenceSignal oracleSignal;
     WeightedRiskModel riskModel;
     ThresholdPolicy policy;
+    AnalyticsEngine analyticsEngine;
     HookShieldHook hook;
 
     PoolSwapTest swapRouter;
@@ -91,6 +93,7 @@ contract HookShieldHookTest is Test {
 
         riskModel = new WeightedRiskModel(address(signalState), 0.3e18, 0.2e18, 0.2e18, 0.3e18);
         policy = new ThresholdPolicy();
+        analyticsEngine = new AnalyticsEngine();
 
         bytes memory constructorArgs = abi.encode(
             address(poolManager),
@@ -99,7 +102,8 @@ contract HookShieldHookTest is Test {
             address(whaleSignal),
             address(oracleSignal),
             address(riskModel),
-            address(policy)
+            address(policy),
+            address(analyticsEngine)
         );
         (address hookAddress, bytes32 salt) =
             HookMiner.find(address(this), FLAGS, type(HookShieldHook).creationCode, constructorArgs);
@@ -111,9 +115,11 @@ contract HookShieldHookTest is Test {
             address(whaleSignal),
             address(oracleSignal),
             address(riskModel),
-            address(policy)
+            address(policy),
+            address(analyticsEngine)
         );
         assertEq(address(hook), hookAddress, "hook address mismatch");
+        analyticsEngine.setWriter(address(hook));
 
         MockERC20 tokenA = new MockERC20("Token A", "TOKA", 18);
         MockERC20 tokenB = new MockERC20("Token B", "TOKB", 18);

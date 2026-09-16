@@ -18,6 +18,7 @@ import {WhaleScoreSignal} from "../signals/WhaleScoreSignal.sol";
 import {OracleDivergenceSignal} from "../signals/OracleDivergenceSignal.sol";
 import {IRiskModel} from "../risk/IRiskModel.sol";
 import {IPolicy, PolicyAction} from "../policy/IPolicy.sol";
+import {AnalyticsEngine} from "../analytics/AnalyticsEngine.sol";
 
 contract HookShieldHook is IHooks {
     using StateLibrary for IPoolManager;
@@ -32,9 +33,12 @@ contract HookShieldHook is IHooks {
     OracleDivergenceSignal public oracleSignal;
     IRiskModel public riskModel;
     IPolicy public policy;
+    AnalyticsEngine public analyticsEngine;
 
     uint24 public latestFee;
     bool public lastSwapTriggered;
+
+    uint256 internal _lastRiskE18;
 
     modifier onlyPoolManager() {
         require(msg.sender == address(poolManager), "NOT_MANAGER");
@@ -48,7 +52,8 @@ contract HookShieldHook is IHooks {
         address _whaleSignal,
         address _oracleSignal,
         address _riskModel,
-        address _policy
+        address _policy,
+        address _analyticsEngine
     ) {
         poolManager = _poolManager;
         volatilitySignal = VolatilitySignal(_volatilitySignal);
@@ -57,6 +62,7 @@ contract HookShieldHook is IHooks {
         oracleSignal = OracleDivergenceSignal(_oracleSignal);
         riskModel = IRiskModel(_riskModel);
         policy = IPolicy(_policy);
+        analyticsEngine = AnalyticsEngine(_analyticsEngine);
     }
 
     // ---------------- BEFORE SWAP ----------------
@@ -91,6 +97,7 @@ contract HookShieldHook is IHooks {
         whaleSignal.update(poolId, tradeSize, params.zeroForOne);
 
         uint256 riskE18 = riskModel.risk(poolId, tradeSize);
+        _lastRiskE18 = riskE18;
         PolicyAction memory act = policy.action(poolId, riskE18);
 
         latestFee = act.fee;
@@ -112,6 +119,10 @@ contract HookShieldHook is IHooks {
         volatilitySignal.update(poolId, currentSqrtPriceX96);
         inventorySignal.update(poolId, params.zeroForOne);
         oracleSignal.update(poolId, currentSqrtPriceX96);
+
+        uint256 tradeSize =
+            params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
+        analyticsEngine.recordSwap(PoolId.unwrap(poolId), tradeSize, _lastRiskE18, latestFee, params.zeroForOne);
 
         return (IHooks.afterSwap.selector, 0);
     }

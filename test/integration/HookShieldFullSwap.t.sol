@@ -31,6 +31,7 @@ import {ChainlinkOracle} from "../../src/oracle/ChainlinkOracle.sol";
 import {OracleDivergenceSignal} from "../../src/signals/OracleDivergenceSignal.sol";
 import {WeightedRiskModel} from "../../src/risk/WeightedRiskModel.sol";
 import {ThresholdPolicy} from "../../src/policy/ThresholdPolicy.sol";
+import {AnalyticsEngine} from "../../src/analytics/AnalyticsEngine.sol";
 import {HookShieldHook} from "../../src/hooks/HookShieldHook.sol";
 
 /// @title HookShieldFullSwapTest
@@ -60,6 +61,7 @@ contract HookShieldFullSwapTest is Test {
     OracleDivergenceSignal oracleSignal;
     WeightedRiskModel riskModel;
     ThresholdPolicy policy;
+    AnalyticsEngine analyticsEngine;
     HookShieldHook hook;
 
     PoolSwapTest swapRouter;
@@ -110,6 +112,9 @@ contract HookShieldFullSwapTest is Test {
         // 4. Deploy the fee policy that maps risk to dynamic fee tiers.
         policy = new ThresholdPolicy();
 
+        // 4b. Deploy the analytics engine (writer set to hook after deployment).
+        analyticsEngine = new AnalyticsEngine();
+
         // 5. Mine a CREATE2 salt so the hook deploys to an address whose bottom 14 bits carry the
         //    BEFORE_SWAP | AFTER_SWAP permission flags. The deployer is this test contract.
         bytes memory constructorArgs = abi.encode(
@@ -119,7 +124,8 @@ contract HookShieldFullSwapTest is Test {
             address(whaleSignal),
             address(oracleSignal),
             address(riskModel),
-            address(policy)
+            address(policy),
+            address(analyticsEngine)
         );
         (address hookAddress, bytes32 salt) =
             HookMiner.find(address(this), FLAGS, type(HookShieldHook).creationCode, constructorArgs);
@@ -132,9 +138,11 @@ contract HookShieldFullSwapTest is Test {
             address(whaleSignal),
             address(oracleSignal),
             address(riskModel),
-            address(policy)
+            address(policy),
+            address(analyticsEngine)
         );
         assertEq(address(hook), hookAddress, "hook did not deploy at the mined CREATE2 address");
+        analyticsEngine.setWriter(address(hook));
 
         // 7. Deploy two mock ERC20s, mint 1,000,000e18 of each to this contract, then sort them
         //    into currency0 / currency1 by address (PoolManager requires currency0 < currency1).

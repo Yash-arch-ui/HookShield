@@ -17,6 +17,7 @@ import {ChainlinkOracle} from "../src/oracle/ChainlinkOracle.sol";
 import {OracleDivergenceSignal} from "../src/signals/OracleDivergenceSignal.sol";
 import {WeightedRiskModel} from "../src/risk/WeightedRiskModel.sol";
 import {ThresholdPolicy} from "../src/policy/ThresholdPolicy.sol";
+import {AnalyticsEngine} from "../src/analytics/AnalyticsEngine.sol";
 import {HookShieldHook} from "../src/hooks/HookShieldHook.sol";
 
 contract Deploy is Script {
@@ -60,6 +61,8 @@ contract Deploy is Script {
 
         ThresholdPolicy policy = new ThresholdPolicy();
 
+        AnalyticsEngine analyticsEngine = new AnalyticsEngine();
+
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
 
         bytes memory constructorArgs = abi.encode(
@@ -69,7 +72,8 @@ contract Deploy is Script {
             address(whaleSignal),
             address(oracleSignal),
             address(riskModel),
-            address(policy)
+            address(policy),
+            address(analyticsEngine)
         );
 
         address CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
@@ -84,10 +88,13 @@ contract Deploy is Script {
             address(whaleSignal),
             address(oracleSignal),
             address(riskModel),
-            address(policy)
+            address(policy),
+            address(analyticsEngine)
         );
 
         require(address(hook) == predictedHookAddr, "hook address mismatch");
+
+        analyticsEngine.setWriter(address(hook));
 
         vm.stopBroadcast();
 
@@ -103,6 +110,7 @@ contract Deploy is Script {
         console.log("OracleDivergenceSignal: ", address(oracleSignal));
         console.log("WeightedRiskModel: ", address(riskModel));
         console.log("ThresholdPolicy:   ", address(policy));
+        console.log("AnalyticsEngine:   ", address(analyticsEngine));
         console.log("HookShieldHook:    ", address(hook));
     }
 }
