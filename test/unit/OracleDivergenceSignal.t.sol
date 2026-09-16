@@ -120,7 +120,8 @@ contract OracleDivergenceSignalTest is Test {
         OracleDivergenceStorage rogueStorage = new OracleDivergenceStorage();
         vm.expectRevert();
         rogueStorage.setState(
-            poolId, OracleDivergenceStorage.OracleState({lastOraclePrice: 1e18, lastPoolPrice: 1e18, lastUpdateBlock: 1})
+            poolId,
+            OracleDivergenceStorage.OracleState({lastOraclePrice: 1e18, lastPoolPrice: 1e18, lastUpdateBlock: 1})
         );
     }
 }

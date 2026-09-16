@@ -6,13 +6,15 @@ import {PoolId} from "v4-core/types/PoolId.sol";
 contract OracleDivergenceStorage {
     struct OracleState {
         uint256 lastOraclePrice; // last Chainlink price, scaled 1e18
-        uint256 lastPoolPrice;   // last observed pool price, scaled 1e18
+        uint256 lastPoolPrice; // last observed pool price, scaled 1e18
         uint256 lastUpdateBlock;
     }
 
     mapping(PoolId => OracleState) private _states;
 
-    event OracleStateUpdated(PoolId indexed poolId, uint256 lastOraclePrice, uint256 lastPoolPrice, uint256 lastUpdateBlock);
+    event OracleStateUpdated(
+        PoolId indexed poolId, uint256 lastOraclePrice, uint256 lastPoolPrice, uint256 lastUpdateBlock
+    );
 
     error OracleDivergenceStorage__Unauthorized();
 

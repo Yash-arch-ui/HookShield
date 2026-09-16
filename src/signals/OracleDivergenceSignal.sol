@@ -38,9 +38,7 @@ contract OracleDivergenceSignal {
         }
 
         OracleDivergenceStorage.OracleState memory newState = OracleDivergenceStorage.OracleState({
-            lastOraclePrice: oraclePrice,
-            lastPoolPrice: poolPrice,
-            lastUpdateBlock: block.number
+            lastOraclePrice: oraclePrice, lastPoolPrice: poolPrice, lastUpdateBlock: block.number
         });
         oracleStorage.setState(poolId, newState);
 
@@ -75,7 +73,11 @@ contract OracleDivergenceSignal {
         return priceRaw * 1e18;
     }
 
-    function _computeDivergence(uint256 priceA, uint256 priceB, uint256 referencePrice) internal pure returns (uint256) {
+    function _computeDivergence(uint256 priceA, uint256 priceB, uint256 referencePrice)
+        internal
+        pure
+        returns (uint256)
+    {
         if (referencePrice == 0) return 0;
         uint256 diff = priceA > priceB ? priceA - priceB : priceB - priceA;
         return (diff * SCALE) / referencePrice > SCALE ? SCALE : (diff * SCALE) / referencePrice;
