@@ -1,3 +1,57 @@
-fn main() {
-    println!("Hello, world!");
+mod fetcher;
+mod math;
+mod report;
+mod simulator;
+
+use alloy::primitives::Address;
+use clap::Parser;
+use std::str::FromStr;
+
+#[derive(Parser)]
+#[command(name = "hookshield-simulator", about = "HookShield historical swap simulator")]
+struct Args {
+    #[arg(long)]
+    rpc_url: String,
+
+    #[arg(long)]
+    pool_id: String,
+
+    #[arg(long)]
+    from_block: u64,
+
+    #[arg(long)]
+    to_block: u64,
+
+    #[arg(long, default_value = "3000")]
+    base_fee: u32,
+
+    #[arg(long, default_value = "text")]
+    format: String,
+}
+
+#[tokio::main]
+async fn main() -> eyre::Result<()> {
+    let args = Args::parse();
+
+    let pool_address =
+        Address::from_str(&args.pool_id).map_err(|e| eyre::eyre!("invalid pool_id: {e}"))?;
+
+    let events = fetcher::fetch_swap_events(
+        &args.rpc_url,
+        pool_address,
+        args.from_block,
+        args.to_block,
+    )
+    .await?;
+
+    println!("Fetched {} swap events", events.len());
+
+    let result = simulator::simulate(&events, args.base_fee);
+
+    match args.format.as_str() {
+        "json" => report::print_json_report(&result)?,
+        _ => report::print_text_report(&result),
+    }
+
+    Ok(())
 }
