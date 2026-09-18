@@ -1,9 +1,12 @@
 mod fetcher;
+mod inventory;
 mod math;
 mod report;
+mod risk;
 mod simulator;
+mod whale;
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256};
 use clap::Parser;
 use std::str::FromStr;
 
@@ -13,7 +16,10 @@ struct Args {
     #[arg(long)]
     rpc_url: String,
 
-    #[arg(long)]
+    #[arg(long, help = "PoolManager contract address")]
+    pool_manager: String,
+
+    #[arg(long, help = "PoolId as hex (bytes32)")]
     pool_id: String,
 
     #[arg(long)]
@@ -33,12 +39,16 @@ struct Args {
 async fn main() -> eyre::Result<()> {
     let args = Args::parse();
 
-    let pool_address =
-        Address::from_str(&args.pool_id).map_err(|e| eyre::eyre!("invalid pool_id: {e}"))?;
+    let pool_manager =
+        Address::from_str(&args.pool_manager).map_err(|e| eyre::eyre!("invalid pool_manager: {e}"))?;
+
+    let pool_id =
+        B256::from_str(&args.pool_id).map_err(|e| eyre::eyre!("invalid pool_id: {e}"))?;
 
     let events = fetcher::fetch_swap_events(
         &args.rpc_url,
-        pool_address,
+        pool_manager,
+        pool_id,
         args.from_block,
         args.to_block,
     )
