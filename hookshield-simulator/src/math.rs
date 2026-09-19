@@ -34,15 +34,18 @@ pub fn calculate_return(old_sqrt_price: u128, new_sqrt_price: u128) -> Result<u1
             .ok_or("overflow in diff subtraction")?
     };
 
-    let numerator = diff
-        .checked_mul(SCALE)
-        .ok_or("overflow in diff * SCALE")?;
+    // Use U256 to avoid overflow: diff * SCALE can exceed u128 when
+    // sqrt_price values are realistic (e.g. ~2^96 ≈ 7.9e28).
+    let numerator = alloy::primitives::U256::from(diff)
+        * alloy::primitives::U256::from(SCALE);
 
     let abs_return = numerator
-        .checked_div(old_sqrt_price)
+        .checked_div(alloy::primitives::U256::from(old_sqrt_price))
         .ok_or("division by zero in return calculation")?;
 
-    Ok(abs_return)
+    abs_return
+        .try_into()
+        .map_err(|_| "return overflows u128".into())
 }
 
 // ──────────────────────── B) EWMA Update ────────────────────────
@@ -106,6 +109,61 @@ mod tests {
         // code divides by oldPrice, which differs (100 vs 110).
         let result = calculate_return(110, 100).unwrap();
         assert_eq!(result, 90_909_090_909_090_909); // 10e18 / 110
+    }
+
+    #[test]
+    fn test_calculate_return_realistic_sqrt_prices_increase() {
+        // Realistic sqrt_price_x96 values (~2^96 ≈ 7.9e28).
+        // A 10% increase in sqrt_price (≈21% price increase):
+        // old = 2^96, new = 2^96 * 11 / 10
+        // diff = 2^96 / 10, return = diff * SCALE / old = SCALE / 10 = 0.1e18
+        let s: u128 = 79_228_162_514_264_337_593_543_950_336; // 2^96
+        let old = s;
+        let new = s * 11 / 10;
+        let result = calculate_return(old, new).unwrap();
+        // Expected: (s/10) * 1e18 / s = 1e17 = 0.1e18
+        // Actual may differ slightly due to integer truncation of s*11/10
+        let expected = 100_000_000_000_000_000; // 0.1e18
+        let tolerance = expected / 100; // 1%
+        assert!(
+            (result as i128 - expected as i128).unsigned_abs() < tolerance,
+            "realistic increase: got {result}, expected ~{expected} (±{tolerance})"
+        );
+        println!("calculate_return({old}, {new}) = {result} ({:.6}e18)", result as f64 / 1e18);
+    }
+
+    #[test]
+    fn test_calculate_return_realistic_sqrt_prices_decrease() {
+        // A 10% decrease in sqrt_price:
+        let s: u128 = 79_228_162_514_264_337_593_543_950_336; // 2^96
+        let old = s * 11 / 10;
+        let new = s;
+        let result = calculate_return(old, new).unwrap();
+        // diff = s*11/10 - s = s/10, return = (s/10) * 1e18 / (s*11/10) = 1e18/11 ≈ 9.09e16
+        let expected = 90_909_090_909_090_909; // 1e18/11
+        let tolerance = expected / 100;
+        assert!(
+            (result as i128 - expected as i128).unsigned_abs() < tolerance,
+            "realistic decrease: got {result}, expected ~{expected} (±{tolerance})"
+        );
+        println!("calculate_return({old}, {new}) = {result} ({:.6}e18)", result as f64 / 1e18);
+    }
+
+    #[test]
+    fn test_calculate_return_realistic_sqrt_prices_large_move() {
+        // A 50% increase in sqrt_price (≈125% price increase):
+        let s: u128 = 79_228_162_514_264_337_593_543_950_336; // 2^96
+        let old = s;
+        let new = s * 3 / 2;
+        let result = calculate_return(old, new).unwrap();
+        // diff = s/2, return = (s/2) * 1e18 / s = 0.5e18
+        let expected = 500_000_000_000_000_000; // 0.5e18
+        let tolerance = expected / 100;
+        assert!(
+            (result as i128 - expected as i128).unsigned_abs() < tolerance,
+            "realistic large move: got {result}, expected ~{expected} (±{tolerance})"
+        );
+        println!("calculate_return({old}, {new}) = {result} ({:.6}e18)", result as f64 / 1e18);
     }
 
     #[test]

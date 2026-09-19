@@ -3,6 +3,7 @@ mod inventory;
 mod math;
 mod report;
 mod risk;
+mod snapshot;
 mod simulator;
 mod whale;
 
