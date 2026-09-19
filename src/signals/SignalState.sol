@@ -9,6 +9,11 @@ struct SignalSnapshot {
     uint256 inventorySkew;
     uint256 oracleDivergence;
     uint256 whaleScore;
+    uint256 jitScore;
+    uint256 sandwichScore;
+    uint256 flashloanScore;
+    uint256 toxicFlowScore;
+    uint256 mevScore;
     uint256 updatedAt;
     uint256 validUntil;
 }
@@ -50,6 +55,41 @@ contract SignalState is Ownable {
     function setWhaleScore(PoolId poolId, uint256 value) external onlyAuthorized {
         require(value <= 1e18, "out of bounds");
         snapshots[poolId].whaleScore = value;
+        snapshots[poolId].updatedAt = uint64(block.timestamp);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
+    }
+
+    function setJitScore(PoolId poolId, uint256 value) external onlyAuthorized {
+        require(value <= 1e18, "out of bounds");
+        snapshots[poolId].jitScore = value;
+        snapshots[poolId].updatedAt = uint64(block.timestamp);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
+    }
+
+    function setSandwichScore(PoolId poolId, uint256 value) external onlyAuthorized {
+        require(value <= 1e18, "out of bounds");
+        snapshots[poolId].sandwichScore = value;
+        snapshots[poolId].updatedAt = uint64(block.timestamp);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
+    }
+
+    function setFlashloanScore(PoolId poolId, uint256 value) external onlyAuthorized {
+        require(value <= 1e18, "out of bounds");
+        snapshots[poolId].flashloanScore = value;
+        snapshots[poolId].updatedAt = uint64(block.timestamp);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
+    }
+
+    function setToxicFlowScore(PoolId poolId, uint256 value) external onlyAuthorized {
+        require(value <= 1e18, "out of bounds");
+        snapshots[poolId].toxicFlowScore = value;
+        snapshots[poolId].updatedAt = uint64(block.timestamp);
+        snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
+    }
+
+    function setMevScore(PoolId poolId, uint256 value) external onlyAuthorized {
+        require(value <= 1e18, "out of bounds");
+        snapshots[poolId].mevScore = value;
         snapshots[poolId].updatedAt = uint64(block.timestamp);
         snapshots[poolId].validUntil = block.timestamp + _STALENESS_WINDOW;
     }
