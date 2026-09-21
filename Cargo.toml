@@ -1,0 +1,3 @@
+[workspace]
+members = ["hookshield-simulator", "reporter-common"]
+resolver = "3"

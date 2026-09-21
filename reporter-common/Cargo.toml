@@ -1,0 +1,11 @@
+[package]
+name = "reporter-common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { version = "2", features = ["full"] }
+eyre = "0.6"
+tokio = { version = "1", features = ["full"] }
+dotenvy = "0.15"
+url = "2"
