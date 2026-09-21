@@ -1,34 +1,30 @@
-use alloy::{
-    network::EthereumWallet,
-    primitives::{Address, FixedBytes, U256},
-    providers::{Provider, ProviderBuilder},
-    rpc::types::TransactionRequest,
-    signers::{local::PrivateKeySigner, Signer},
-    sol,
-    sol_types::{eip712_domain, Eip712Domain, SolCall, SolStruct},
-};
+use alloy::primitives::{Address, Bytes, B256, U256};
+use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+use alloy::signers::local::PrivateKeySigner;
+use alloy::signers::Signer;
+use alloy::sol;
+use alloy::sol_types::{eip712_domain, Eip712Domain, SolStruct};
 use eyre::Result;
 use std::str::FromStr;
 
 sol! {
-    #[derive(Debug)]
-    struct SignalReport {
-        bytes32 poolId;
-        uint8 signalType;
-        uint256 score;
-        uint256 nonce;
-        uint256 validUntil;
-    }
-
+    #[derive(Debug, PartialEq, Eq)]
     #[sol(rpc)]
     interface IReporterSignalStore {
+        struct SignalReport {
+            bytes32 poolId;
+            uint8 signalType;
+            uint256 score;
+            uint256 nonce;
+            uint256 validUntil;
+        }
+
         function lastNonce(address reporter) external view returns (uint256);
-        function submitScore(
-            SignalReport calldata report,
-            bytes calldata signature
-        ) external;
+        function submitScore(SignalReport calldata report, bytes calldata signature) external;
     }
 }
+
+pub use IReporterSignalStore::SignalReport;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -44,42 +40,45 @@ impl SignalType {
     pub fn as_u8(self) -> u8 {
         self as u8
     }
-}
 
-impl From<u8> for SignalType {
-    fn from(value: u8) -> Self {
+    pub fn from_u8(value: u8) -> Option<Self> {
         match value {
-            0 => Self::Sandwich,
-            1 => Self::Flashloan,
-            2 => Self::ToxicFlow,
-            3 => Self::Jit,
-            4 => Self::Mev,
-            _ => panic!("invalid signal type: {value}"),
+            0 => Some(Self::Sandwich),
+            1 => Some(Self::Flashloan),
+            2 => Some(Self::ToxicFlow),
+            3 => Some(Self::Jit),
+            4 => Some(Self::Mev),
+            _ => None,
         }
     }
 }
 
 pub struct ReporterClient {
-    rpc_url: String,
+    provider: DynProvider,
     signer: PrivateKeySigner,
     contract_address: Address,
     domain: Eip712Domain,
 }
 
 impl ReporterClient {
-    pub fn new(rpc_url: &str, private_key: &str, contract_address: Address) -> Result<Self> {
-        let signer = PrivateKeySigner::from_str(private_key)?;
+    pub fn new(rpc_url: &str, private_key: &str, reporter_address: Address) -> Result<Self> {
+        let provider = ProviderBuilder::new()
+            .connect_http(rpc_url.parse()?)
+            .erased();
+
+        let signer = PrivateKeySigner::from_str(private_key.trim_start_matches("0x"))?;
+
         let domain = eip712_domain! {
             name: "HookShieldReporter",
             version: "1",
             chain_id: 11155111u64,
-            verifying_contract: contract_address,
+            verifying_contract: reporter_address,
         };
 
         Ok(Self {
-            rpc_url: rpc_url.to_string(),
+            provider,
             signer,
-            contract_address,
+            contract_address: reporter_address,
             domain,
         })
     }
@@ -90,18 +89,15 @@ impl ReporterClient {
         signal_type: SignalType,
         score: u128,
         valid_for_seconds: u64,
-    ) -> Result<FixedBytes<32>> {
-        let url: url::Url = self.rpc_url.parse()?;
-        let read_provider = ProviderBuilder::new()
-            .disable_recommended_fillers()
-            .connect_http(url);
+    ) -> Result<B256> {
+        let contract = IReporterSignalStore::new(self.contract_address, &self.provider);
 
-        let contract = IReporterSignalStore::new(self.contract_address, &read_provider);
-        let last_nonce = contract
+        let current_nonce = contract
             .lastNonce(self.signer.address())
             .call()
             .await?;
-        let nonce = last_nonce + U256::from(1);
+
+        let new_nonce = current_nonce + U256::from(1);
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -109,47 +105,21 @@ impl ReporterClient {
         let valid_until = U256::from(now + valid_for_seconds);
 
         let report = SignalReport {
-            poolId: FixedBytes::from(pool_id),
+            poolId: pool_id.into(),
             signalType: signal_type.as_u8(),
             score: U256::from(score),
-            nonce,
+            nonce: new_nonce,
             validUntil: valid_until,
         };
 
-        let struct_hash = report.eip712_hash_struct();
-        let domain_separator = self.domain.separator();
-        let mut digest_data = Vec::with_capacity(66);
-        digest_data.push(0x19);
-        digest_data.push(0x01);
-        digest_data.extend_from_slice(domain_separator.as_slice());
-        digest_data.extend_from_slice(struct_hash.as_slice());
-        let digest = alloy::primitives::keccak256(&digest_data);
+        let signing_hash = report.eip712_signing_hash(&self.domain);
 
-        let sig = self.signer.sign_hash(&digest).await?;
-        let sig_bytes: alloy::primitives::Bytes = sig.as_bytes().into();
+        let signature = self.signer.sign_hash(&signing_hash).await?;
+        let sig_bytes = Bytes::from(signature.as_bytes().to_vec());
 
-        let call = IReporterSignalStore::submitScoreCall {
-            report,
-            signature: sig_bytes,
-        };
-        let call_data: Vec<u8> = call.abi_encode();
+        let pending = contract.submitScore(report, sig_bytes).send().await?;
 
-        let wallet = EthereumWallet::from(self.signer.clone());
-        let write_url: url::Url = self.rpc_url.parse()?;
-        let write_provider = ProviderBuilder::new()
-            .wallet(wallet)
-            .connect_http(write_url);
-
-        let tx = TransactionRequest::default()
-            .to(self.contract_address)
-            .input(alloy::rpc::types::TransactionInput::new(call_data.into()));
-
-        let receipt = write_provider
-            .send_transaction(tx)
-            .await?
-            .get_receipt()
-            .await?;
-
+        let receipt = pending.get_receipt().await?;
         Ok(receipt.transaction_hash)
     }
 }
@@ -173,12 +143,14 @@ mod tests {
 
         let client = ReporterClient::new(&rpc_url, &private_key, contract_address)?;
 
-        let pool_id = [0u8; 32];
+        let pool_id = [1u8; 32];
         let tx_hash = client
-            .submit_score(pool_id, SignalType::Sandwich, 100, 3600)
+            .submit_score(pool_id, SignalType::Sandwich, 1000, 3600)
             .await?;
 
-        println!("Transaction submitted: {tx_hash}");
+        println!("Transaction submitted: {:?}", tx_hash);
+        assert!(!tx_hash.is_zero());
+
         Ok(())
     }
 }
