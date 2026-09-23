@@ -46,6 +46,74 @@ contract SignalStateTest is Test {
         assertTrue(signalState.isStale(poolId));
     }
 
+    // ── P0: per-field staleness + configurable window ─────────────────────
+
+    function test_FieldNeverWritten_IsNotStale() public {
+        // Nothing has ever been written: validUntil == 0 means "no observation
+        // yet", not "expired observation". The pool is NOT stale.
+        assertFalse(signalState.isStale(poolId));
+        assertFalse(signalState.isVolatilityStale(poolId));
+        assertFalse(signalState.isInventoryStale(poolId));
+        assertFalse(signalState.isOracleStale(poolId));
+        assertFalse(signalState.isWhaleStale(poolId));
+    }
+
+    function test_Stale_IsTrueOnceAnyCoreFieldExpires() public {
+        signalState.setVolatility(poolId, 0.5e18);
+        signalState.setInventorySkew(poolId, 0.5e18);
+
+        vm.warp(block.timestamp + 6 minutes); // past 5-minute default window
+
+        assertTrue(signalState.isVolatilityStale(poolId));
+        assertTrue(signalState.isInventoryStale(poolId));
+        assertTrue(signalState.isStale(poolId));
+        // Fields never written stay "not stale".
+        assertFalse(signalState.isOracleStale(poolId));
+        assertFalse(signalState.isWhaleStale(poolId));
+    }
+
+    function test_PerField_SurvivesIndependentRefresh() public {
+        signalState.setVolatility(poolId, 0.5e18);
+        signalState.setInventorySkew(poolId, 0.5e18);
+
+        vm.warp(block.timestamp + 4 minutes);
+        // Refresh only volatility — inventory keeps its original deadline.
+        signalState.setVolatility(poolId, 0.6e18);
+
+        vm.warp(block.timestamp + 2 minutes); // t+6: inventory (written at t+4? no — at t0) expired
+        // volatility written at t+4, window 5m -> valid until t+9. now t+6: fresh.
+        assertFalse(signalState.isVolatilityStale(poolId));
+        assertTrue(signalState.isInventoryStale(poolId));
+        assertTrue(signalState.isStale(poolId), "stale inventory alone must mark the pool stale");
+    }
+
+    function test_SetStalenessWindow_AffectsSubsequentWrites() public {
+        signalState.setStalenessWindow(30 seconds);
+        signalState.setVolatility(poolId, 0.5e18);
+
+        vm.warp(block.timestamp + 31 seconds);
+        assertTrue(signalState.isVolatilityStale(poolId), "31s > 30s window");
+    }
+
+    function test_SetStalenessWindow_RevertsOutOfBounds() public {
+        vm.expectRevert("window out of bounds");
+        signalState.setStalenessWindow(29 seconds);
+
+        vm.expectRevert("window out of bounds");
+        signalState.setStalenessWindow(61 minutes);
+    }
+
+    function test_SetStalenessWindow_OnlyOwner() public {
+        vm.prank(address(0xBEEF));
+        vm.expectRevert();
+        signalState.setStalenessWindow(1 minutes);
+    }
+
+    function test_DefaultStalenessWindow_IsFiveMinutes() public view {
+        assertEq(signalState.DEFAULT_STALENESS_WINDOW(), 5 minutes);
+        assertEq(signalState.stalenessWindow(), 5 minutes);
+    }
+
     function test_SetAuthorizedWriter_OnlyOwner() public {
         vm.prank(address(0xBEEF)); // not the owner (owner = whoever deployed, i.e. address(this))
         vm.expectRevert(); // Ownable's custom error — exact match not required unless you want it precise

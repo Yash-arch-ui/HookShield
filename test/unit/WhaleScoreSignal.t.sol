@@ -23,6 +23,8 @@ contract WhaleScoreSignalTest is Test {
         signalState = new SignalState();
         whaleSignal = new WhaleScoreSignal(address(poolManager), address(signalState));
         signalState.setAuthorizedWriter(address(whaleSignal), true);
+        // P0: bind this test as the hook so direct update() calls are authorized.
+        whaleSignal.setHook(address(this));
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
             currency1: Currency.wrap(address(0x2)),

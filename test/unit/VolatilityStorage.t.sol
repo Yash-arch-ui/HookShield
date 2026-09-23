@@ -34,14 +34,20 @@ contract VolatilityStorageTest is Test {
         vm.prank(address(0x1234));
         vm.expectRevert();
         volStorage.setState(
-            poolId, VolatilityStorage.VolatilityState({lastSqrtPriceX96: 100, ewmaVolatility: 0, lastUpdateBlock: 1})
+            poolId,
+            VolatilityStorage.VolatilityState({
+                lastSqrtPriceX96: 100, ewmaVolatility: 0, ewmaVolatilityFast: 0, ewmaVariance: 0, lastUpdateBlock: 1
+            })
         );
     }
 
     function testSetStateSucceedsFromWriter() public {
         volStorage.setWriter(address(this));
         volStorage.setState(
-            poolId, VolatilityStorage.VolatilityState({lastSqrtPriceX96: 100, ewmaVolatility: 0, lastUpdateBlock: 1})
+            poolId,
+            VolatilityStorage.VolatilityState({
+                lastSqrtPriceX96: 100, ewmaVolatility: 0, ewmaVolatilityFast: 0, ewmaVariance: 0, lastUpdateBlock: 1
+            })
         );
         VolatilityStorage.VolatilityState memory state = volStorage.getState(poolId);
         assertEq(state.lastSqrtPriceX96, 100);

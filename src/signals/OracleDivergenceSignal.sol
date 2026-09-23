@@ -7,11 +7,17 @@ import {IOracle} from "../oracle/IOracle.sol";
 import {SignalState} from "./SignalState.sol";
 
 contract OracleDivergenceSignal {
+    error OracleDivergenceSignal__Unauthorized();
+
     uint256 public constant SCALE = 1e18;
 
     OracleDivergenceStorage public immutable oracleStorage;
     IOracle public immutable oracle;
     SignalState public immutable signalState;
+
+    /// @notice The hook — the only account allowed to publish observations (P0).
+    address public hook;
+    bool private _hookSet;
 
     constructor(address _oracleStorage, address _oracle, address _signalState) {
         require(_oracleStorage != address(0), "zero oracleStorage");
@@ -22,9 +28,22 @@ contract OracleDivergenceSignal {
         signalState = SignalState(_signalState);
     }
 
+    /// @notice One-time binding of the publishing hook (mirrors setWriter pattern).
+    function setHook(address _hook) external {
+        require(!_hookSet, "hook already set");
+        require(_hook != address(0), "zero hook");
+        hook = _hook;
+        _hookSet = true;
+    }
+
+    modifier onlyHook() {
+        if (msg.sender != hook) revert OracleDivergenceSignal__Unauthorized();
+        _;
+    }
+
     /// @notice Called from afterSwap. Fetches the oracle price and computes divergence
     ///         against the pool's current on-chain price.
-    function update(PoolId poolId, uint160 currentSqrtPriceX96) external {
+    function update(PoolId poolId, uint160 currentSqrtPriceX96) external onlyHook {
         uint256 oraclePrice = _getOraclePrice();
 
         // pool price = sqrtPriceX96^2 / 2^192, scaled to 1e18

@@ -121,6 +121,12 @@ contract HookShieldHookTest is Test {
         assertEq(address(hook), hookAddress, "hook address mismatch");
         analyticsEngine.setWriter(address(hook));
 
+        // P0: bind every signal's publisher to the hook — only the hook may write.
+        volatilitySignal.setHook(address(hook));
+        inventorySignal.setHook(address(hook));
+        whaleSignal.setHook(address(hook));
+        oracleSignal.setHook(address(hook));
+
         MockERC20 tokenA = new MockERC20("Token A", "TOKA", 18);
         MockERC20 tokenB = new MockERC20("Token B", "TOKB", 18);
         (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
@@ -150,7 +156,10 @@ contract HookShieldHookTest is Test {
         );
 
         poolId = poolKey.toId();
-        volatilitySignal.update(poolId, TickMath.getSqrtPriceAtTick(0));
+        // Seed volatility with a baseline price observation (pranked as the hook —
+        // P0 access control means only the hook may call update()).
+        vm.prank(address(hook));
+        volatilitySignal.update(poolId, TickMath.getSqrtPriceAtTick(0), 1e18);
     }
 
     function _swap(SwapParams memory params) internal {

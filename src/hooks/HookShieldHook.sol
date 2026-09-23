@@ -26,6 +26,11 @@ contract HookShieldHook is IHooks {
 
     event DynamicFeeComputed(uint256 tradeSize, uint256 riskE18, uint24 fee, uint8 tier);
 
+    /// @notice Emitted when the extreme-risk circuit breaker blocks a swap (P3).
+    event SwapsHalted(PoolId indexed poolId, uint256 riskE18);
+
+    error SwapsPaused();
+
     IPoolManager public poolManager;
     VolatilitySignal public volatilitySignal;
     InventorySignal public inventorySignal;
@@ -96,9 +101,27 @@ contract HookShieldHook is IHooks {
         //      already controls via amountSpecified.
         whaleSignal.update(poolId, tradeSize, params.zeroForOne);
 
-        uint256 riskE18 = riskModel.risk(poolId, tradeSize);
+        // P2: pass trade size AND current in-range liquidity so the risk model
+        // can score size/liquidity pressure, not just the historical signals.
+        uint128 liquidity = poolManager.getLiquidity(poolId);
+        uint256 riskE18 = riskModel.risk(poolId, tradeSize, liquidity);
         _lastRiskE18 = riskE18;
-        PolicyAction memory act = policy.action(poolId, riskE18);
+
+        // P2: direction-aware fee — the policy compares this swap's direction
+        // against the pool's signed inventory flow to surcharge worsening swaps
+        // and discount rebalancing ones.  Also P3: may latch the pause flag.
+        PolicyAction memory act = policy.action(poolId, riskE18, params.zeroForOne, inventorySignal.netFlow(poolId));
+
+        // P3: enforce the extreme-risk circuit breaker — BUT only while signals
+        // are fresh.  When stale, risk escalates to SCALE which would latch the
+        // breaker with no way out (paused swaps cannot refresh signals in
+        // afterSwap).  Skipping enforcement lets one swap through; its afterSwap
+        // republishes signals and the condition clears (or the next fresh risk
+        // reading legitimately halts again).
+        if (act.pauseSwaps && !riskModel.isStale(poolId)) {
+            emit SwapsHalted(poolId, riskE18);
+            revert SwapsPaused();
+        }
 
         latestFee = act.fee;
 
@@ -116,12 +139,14 @@ contract HookShieldHook is IHooks {
 
         (uint160 currentSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
 
-        volatilitySignal.update(poolId, currentSqrtPriceX96);
+        uint256 tradeSize =
+            params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
+
+        // P1: pass tradeSize so VolatilitySignal can drop dust observations.
+        volatilitySignal.update(poolId, currentSqrtPriceX96, tradeSize);
         inventorySignal.update(poolId, params.zeroForOne);
         oracleSignal.update(poolId, currentSqrtPriceX96);
 
-        uint256 tradeSize =
-            params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
         analyticsEngine.recordSwap(PoolId.unwrap(poolId), tradeSize, _lastRiskE18, latestFee, params.zeroForOne);
 
         return (IHooks.afterSwap.selector, 0);

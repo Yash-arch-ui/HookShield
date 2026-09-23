@@ -9,6 +9,9 @@ interface ISignal {
     function compute(PoolId poolId) external view returns (uint256 value);
 
     /// @notice Triggers recomputation and writes the result into SignalState
-    /// @dev Called from the hook's afterSwap, not beforeSwap
-    function update(PoolId poolId, uint160 newSqrtPriceX96) external;
+    /// @dev Called from the hook's afterSwap, not beforeSwap.
+    ///      `tradeSize` lets the signal apply a dust filter: swaps below
+    ///      `minObservationSize` are skipped entirely so an attacker cannot
+    ///      manufacture fake volatility with near-zero trades (P1).
+    function update(PoolId poolId, uint160 newSqrtPriceX96, uint256 tradeSize) external;
 }

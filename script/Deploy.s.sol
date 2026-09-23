@@ -94,6 +94,13 @@ contract Deploy is Script {
 
         require(address(hook) == predictedHookAddr, "hook address mismatch");
 
+        // P0: bind each signal's publisher to the hook — no other address may
+        // write observations after deployment.
+        volatilitySignal.setHook(address(hook));
+        inventorySignal.setHook(address(hook));
+        whaleSignal.setHook(address(hook));
+        oracleSignal.setHook(address(hook));
+
         analyticsEngine.setWriter(address(hook));
 
         vm.stopBroadcast();

@@ -19,6 +19,8 @@ contract InventorySignalTest is Test {
         inventorySignal = new InventorySignal(address(invStorage), address(signalState));
         invStorage.setWriter(address(inventorySignal));
         signalState.setAuthorizedWriter(address(inventorySignal), true);
+        // P0: bind this test as the hook so direct update() calls are authorized.
+        inventorySignal.setHook(address(this));
 
         poolId = PoolId.wrap(bytes32(uint256(1)));
     }

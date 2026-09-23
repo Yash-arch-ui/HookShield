@@ -29,6 +29,8 @@ contract OracleDivergenceSignalTest is Test {
             new OracleDivergenceSignal(address(oracleStorage), address(chainlinkOracle), address(signalState));
         oracleStorage.setWriter(address(oracleSignal));
         signalState.setAuthorizedWriter(address(oracleSignal), true);
+        // P0: bind this test as the hook so direct update() calls are authorized.
+        oracleSignal.setHook(address(this));
 
         poolId = PoolId.wrap(bytes32(uint256(1)));
     }

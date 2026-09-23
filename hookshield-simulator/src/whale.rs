@@ -85,11 +85,13 @@ pub fn compute_whale_impact(
     };
 
     // Use U256 to avoid overflow: diff * 2 * SCALE can exceed u128.
-    let impact_u256 = U256::from(diff) * U256::from(2u128) * U256::from(SCALE)
-        / U256::from(sqrt_price_x96);
-    let impact = impact_u256.to::<u128>();
+    // Cap inside U256 before narrowing — mirrors on-chain where the product is
+    // computed in uint256 and only then clamped to SCALE.
+    let impact_u256 = (U256::from(diff) * U256::from(2u128) * U256::from(SCALE)
+        / U256::from(sqrt_price_x96))
+        .min(U256::from(SCALE));
 
-    Ok(if impact > SCALE { SCALE } else { impact })
+    Ok(impact_u256.to::<u128>())
 }
 
 #[cfg(test)]

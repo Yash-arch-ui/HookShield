@@ -12,7 +12,9 @@ contract VolatilityStorage {
 
     struct VolatilityState {
         uint160 lastSqrtPriceX96; // last observed sqrtPriceX96 from the pool
-        uint256 ewmaVolatility; // EWMA volatility (scaled 1e18)
+        uint256 ewmaVolatility; // published EWMA volatility (scaled 1e18)
+        uint256 ewmaVolatilityFast; // fast-horizon EWMA (α=0.3) for momentum (P2)
+        uint256 ewmaVariance; // EWMA of squared returns ≈ rolling variance (P2)
         uint256 lastUpdateBlock; // block.number of the last update
     }
 
@@ -86,19 +88,5 @@ contract VolatilityStorage {
         _states[poolId] = state;
 
         emit StateUpdated(poolId, state.lastSqrtPriceX96, state.ewmaVolatility, state.lastUpdateBlock);
-    }
-
-    /// @notice Updates individual fields without replacing the entire struct.
-    /// @dev Only callable by the designated writer.
-    function updateState(PoolId poolId, uint160 lastSqrtPriceX96, uint256 ewmaVolatility, uint256 lastUpdateBlock)
-        external
-        onlyWriter
-    {
-        VolatilityState storage s = _states[poolId];
-        s.lastSqrtPriceX96 = lastSqrtPriceX96;
-        s.ewmaVolatility = ewmaVolatility;
-        s.lastUpdateBlock = lastUpdateBlock;
-
-        emit StateUpdated(poolId, lastSqrtPriceX96, ewmaVolatility, lastUpdateBlock);
     }
 }

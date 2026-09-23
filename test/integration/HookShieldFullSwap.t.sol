@@ -144,6 +144,12 @@ contract HookShieldFullSwapTest is Test {
         assertEq(address(hook), hookAddress, "hook did not deploy at the mined CREATE2 address");
         analyticsEngine.setWriter(address(hook));
 
+        // P0: bind every signal's publisher to the hook — only the hook may write.
+        volatilitySignal.setHook(address(hook));
+        inventorySignal.setHook(address(hook));
+        whaleSignal.setHook(address(hook));
+        oracleSignal.setHook(address(hook));
+
         // 7. Deploy two mock ERC20s, mint 1,000,000e18 of each to this contract, then sort them
         //    into currency0 / currency1 by address (PoolManager requires currency0 < currency1).
         MockERC20 tokenA = new MockERC20("Token A", "TOKA", 18);
@@ -182,11 +188,13 @@ contract HookShieldFullSwapTest is Test {
         );
 
         // 13. Store the pool id, then seed the volatility signal with the starting price.
-        //     Without this seed the snapshot would be "stale" (validUntil == 0), which makes the
-        //     risk model return its STALE_FALLBACK_RISK (0.5e18 -> tier 2, 6000 fee) instead of a
-        //     clean zero volatility -> base tier. Seeding marks the pool fresh with volatility 0.
+        //     This marks the volatility field fresh with value 0. (Never-written fields
+        //     are not considered stale under the P0 semantics, but seeding still gives
+        //     the EWMA a baseline price to compute the first real return against.)
+        //     update() is hook-only (P0), so the seed must be pranked as the hook.
         poolId = poolKey.toId();
-        volatilitySignal.update(poolId, TickMath.getSqrtPriceAtTick(0));
+        vm.prank(address(hook));
+        volatilitySignal.update(poolId, TickMath.getSqrtPriceAtTick(0), 1e18);
     }
 
     /// @notice Executes a swap through the PoolSwapTest router with default test settings.
@@ -196,12 +204,21 @@ contract HookShieldFullSwapTest is Test {
         swapRouter.swap(poolKey, params, settings, "");
     }
 
-    /// @notice A single swap on a fresh pool. Volatility was seeded to 0, so the risk model
-    ///         returns 0 and the policy charges the base tier fee (3000, 0.30%).
+    /// @notice A single swap on a fresh pool. Volatility was seeded to 0 and inventory is
+    ///         balanced, so the only risk comes from this swap's own whale impact and the
+    ///         P2 size/liquidity pressure term — both tiny once deep liquidity is present.
+    ///         The quadratic curve then rounds the fee to the base tier (3000, 0.30%).
     function test_FirstSwap_UsesBaseFee() public {
+        // Deep full-range liquidity makes whale impact and size/pressure negligible.
+        liquidityRouter.modifyLiquidity(
+            poolKey,
+            ModifyLiquidityParams({tickLower: -887220, tickUpper: 887220, liquidityDelta: 1000e18, salt: bytes32(0)}),
+            ""
+        );
+
         _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
 
-        assertEq(hook.latestFee(), 3000, "first swap should use the base tier fee (volatility is 0)");
+        assertEq(hook.latestFee(), 3000, "first swap should use the base fee (near-zero risk)");
     }
 
     /// @notice Repeated swaps keep feeding returns into the EWMA so volatility ends up > 0.
@@ -224,17 +241,18 @@ contract HookShieldFullSwapTest is Test {
         assertGt(volatilityStorage.getEwmaVolatility(poolId), 0, "EWMA volatility should be greater than 0");
     }
 
-    /// @notice Larger swaps eventually push the EWMA above the tier-1 threshold (0.2e18), so a
-    ///         later swap is charged a higher fee than the first. Because the thin liquidity pins
-    ///         the price at the limit after each large sell, we alternate direction to generate
-    ///         the ~100%/50% sqrt-price returns that compound volatility past the threshold.
+    /// @notice Larger swaps push whale impact + size/liquidity pressure + rising volatility
+    ///         high enough that a later swap is charged a quadratic-curve fee well above the
+    ///         first swap's. Because the thin liquidity pins the price at the limit after each
+    ///         large sell, we alternate direction to keep generating real price movement.
     function test_HighVolatility_EventuallyTriggersHigherFeeTier() public {
-        // First swap: a SMALL sell of token0. Its own whale impact is modest
-        // (2 * 1e17 / (1e18 + 1e17) ~= 0.18e18 -> weighted 0.3 -> risk ~0.05e18),
-        // so it is charged the base tier fee (3000).
+        // First swap: a SMALL sell of token0 on thin liquidity. Whale impact and the
+        // P2 pressure term give a low-but-nonzero risk, so the quadratic curve returns
+        // a fee just above the base (in the 3000..3400 band for risk < ~0.2e18).
         _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
         uint24 firstFee = hook.latestFee();
-        assertEq(firstFee, 3000, "small first swap should use the base tier fee");
+        assertGe(firstFee, 3000, "first swap fee must be at least the base fee");
+        assertLt(firstFee, 3400, "small first swap should price in the low-risk band");
 
         // Buy back up to 2 * MIN_SQRT_PRICE: another ~100% sqrt-price move -> EWMA ~0.19e18.
         _swap(SwapParams({zeroForOne: false, amountSpecified: -1e18, sqrtPriceLimitX96: 2 * MIN_SQRT_PRICE}));

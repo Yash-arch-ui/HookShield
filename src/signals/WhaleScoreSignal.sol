@@ -20,10 +20,16 @@ import {SignalState} from "./SignalState.sol";
 ///         other signals update in afterSwap because they only need to inform
 ///         FUTURE swaps.
 contract WhaleScoreSignal {
+    error WhaleScoreSignal__Unauthorized();
+
     using StateLibrary for IPoolManager;
     uint256 public constant SCALE = 1e18;
     IPoolManager public immutable poolManager;
     SignalState public immutable signalState;
+
+    /// @notice The hook — the only account allowed to publish observations (P0).
+    address public hook;
+    bool private _hookSet;
 
     constructor(address _poolManager, address _signalState) {
         require(_poolManager != address(0), "zero poolManager");
@@ -32,7 +38,24 @@ contract WhaleScoreSignal {
         signalState = SignalState(_signalState);
     }
 
-    function update(PoolId poolId, uint256 amountIn, bool zeroForOne) external returns (uint256 impactE18) {
+    /// @notice One-time binding of the publishing hook (mirrors setWriter pattern).
+    function setHook(address _hook) external {
+        require(!_hookSet, "hook already set");
+        require(_hook != address(0), "zero hook");
+        hook = _hook;
+        _hookSet = true;
+    }
+
+    modifier onlyHook() {
+        if (msg.sender != hook) revert WhaleScoreSignal__Unauthorized();
+        _;
+    }
+
+    function update(PoolId poolId, uint256 amountIn, bool zeroForOne)
+        external
+        onlyHook
+        returns (uint256 impactE18)
+    {
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint128 liquidity = poolManager.getLiquidity(poolId);
         if (liquidity == 0 || amountIn == 0) {
