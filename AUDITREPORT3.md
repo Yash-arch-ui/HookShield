@@ -836,27 +836,27 @@ Executes a single 0.1-token swap through the live pool.
 | # | Finding | File | Status |
 |---|---------|------|--------|
 | H-1 | **Deployment is stale — constructor arity mismatch** | `script/Deploy.s.sol` | OPEN — On-chain hook was deployed with 7 constructor params but current source requires 8 (added `AnalyticsEngine`). The deployed contract lacks analytics recording. |
-| H-2 | **Reporter off-chain signals not used in risk computation** | `WeightedRiskModel.sol` | OPEN — SignalState has 5 off-chain signal fields (jitScore, sandwichScore, flashloanScore, toxicFlowScore, mevScore) that are never read by WeightedRiskModel.risk(). The `risk()` function only reads the 4 on-chain signals (volatility, inventorySkew, oracleDivergence, whaleScore). Off-chain reporter signals have zero effect on fees. |
-| H-3 | **No mechanism to prevent stale reporter scores from influencing future risk** | `SignalState.sol` | OPEN — Reporter scores (jit, sandwich, etc.) have `validUntil` set by the reporter, but `WeightedRiskModel.risk()` never reads them, so staleness is moot. If/when they are wired in, the `updatedAt`/`validUntil` fields are set per-field but the staleness check in WeightedRiskModel only checks the most recent `updatedAt` across ALL fields. |
+| H-2 | **Reporter off-chain signals not used in risk computation** | `WeightedRiskModel.sol` | FIXED — `risk()` now adds `maxFreshReporterScore × reporterWeight / 1e18` before the final SCALE clamp. `reporterWeight` is owner-tunable via `setReporterWeight` (default `0.3e18`, emits `ReporterWeightUpdated`). Uses `max()` over the five reporter scores, each gated by its own H-3 deadline. |
+| H-3 | **No mechanism to prevent stale reporter scores from influencing future risk** | `SignalState.sol` | FIXED — Each reporter setter stamps its own `...ValidUntil` deadline; `SignalState` exposes `isJitStale/isSandwichStale/isFlashloanStale/isToxicFlowStale/isMevStale` and `WeightedRiskModel` includes a reporter score only while fresh (never-written ⇒ treated as 0, not stale). Reporter staleness does not feed the pool-level `isStale()`, so expired reports decay instead of escalating fees; core-signal staleness still returns `STALE_FALLBACK_RISK = 1e18`. |
 
 ### MEDIUM
 
 | # | Finding | File | Status |
 |---|---------|------|--------|
-| M-1 | **`tradeSize` parameter ignored in risk computation** | `WeightedRiskModel.sol` | OPEN — `risk(poolId, tradeSize)` accepts `tradeSize` but never uses it. A large trade in a thin pool has the same risk as a small trade (whale signal captures impact, but risk weights don't differentiate trade size beyond whale score). |
-| M-2 | **`pauseSwaps` in PolicyAction is always false** | `ThresholdPolicy.sol` | OPEN — The `pauseSwaps` field exists but is never set to true. No emergency pause mechanism exists for the hook. |
+| M-1 | **`tradeSize` parameter ignored in risk computation** | `WeightedRiskModel.sol` | FIXED — `risk(poolId, tradeSize, liquidity)` adds `min(tradeSize × 1e18 / liquidity, 0.3e18)` as a size/liquidity pressure term before the SCALE clamp. |
+| M-2 | **`pauseSwaps` in PolicyAction is always false** | `ThresholdPolicy.sol` | FIXED — Circuit breaker sets `pauseSwaps` when risk exceeds the halt threshold (0.95e18), with dead-band hysteresis (0.10e18) to prevent flicker. |
 | M-3 | **No rate limiting on ReporterSignalStore** | `ReporterSignalStore.sol` | OPEN — Any authorized reporter can submit unlimited reports as long as nonce increases. No cooldown between submissions for the same pool. |
-| M-4 | **Whale score uses absolute price impact, not direction** | `WhaleScoreSignal.sol` | OPEN — `impactE18 = |old - new| * 2 * SCALE / old` is always positive regardless of swap direction. A large buy and large sell of equal size produce identical whale scores. |
-| M-5 | **Inventory flow step is coarse (1e18 per swap)** | `InventorySignal.sol` | OPEN — Each swap increments/decrements by exactly `FLOW_STEP = 1e18`, regardless of trade size. A 0.001-token swap has the same inventory impact as a 1000-token swap. |
-| M-6 | **Oracle fallback silently returns 0 divergence** | `OracleDivergenceSignal.sol` | OPEN — If Chainlink is stale or unavailable, `_getOraclePrice()` catches the revert and returns 0, making divergence = 0. This masks oracle failure as "no divergence" rather than signaling an error. |
+| M-4 | **Whale score uses absolute price impact, not direction** | `WhaleScoreSignal.sol` | FIXED — `update`/`compute` now take the pool's signed `netFlow`; `adjust_for_direction` halves the raw impact when the swap rebalances inventory (`netFlow > 0 && !zeroForOne` or `netFlow < 0 && zeroForOne`), while worsening swaps keep full impact. Liquidity-0 early-return applies the discount before the SCALE clamp. |
+| M-5 | **Inventory flow step is coarse (1e18 per swap)** | `InventorySignal.sol` | FIXED — `update(poolId, zeroForOne, tradeSize)` scales the step as `FLOW_STEP × tradeSize / REFERENCE_SIZE` (`REFERENCE_SIZE = 1e18`), saturating at `MAX_FLOW` for trades ≥ `10 × REFERENCE_SIZE`. A reference-size swap reproduces the legacy full step; dust trades move flow negligibly. |
+| M-6 | **Oracle fallback silently returns 0 divergence** | `OracleDivergenceSignal.sol` | FIXED — When the oracle price is unavailable (`0`), the signal publishes divergence `1e18` (max risk) and emits `OracleUnavailable(poolId, timestamp)` instead of silently reporting 0. A never-observed pool still publishes `0` (no observation ≠ failure). |
 
 ### LOW
 
 | # | Finding | File | Status |
 |---|---------|------|--------|
 | L-1 | **`sqrt_price_x96_before` approximation in Rust fetcher** | `fetcher.rs` | OPEN — When multiple swaps occur in the same block, only the last swap's `sqrtPriceX96` is captured. Intermediate swaps use the previous block's closing price as their "before" price. |
-| L-2 | **Rust simulator doesn't model off-chain reporter signals** | `simulator.rs` | OPEN — The Rust simulator only computes the 4 on-chain signals. Off-chain reporter signals (jit, sandwich, etc.) are not simulated. |
-| L-3 | **No event for WeightedRiskModel weight changes** | `WeightedRiskModel.sol` | OPEN — `setWeights()` has no event emission. Weight changes are not auditable on-chain. |
+| L-2 | **Rust simulator doesn't model off-chain reporter signals** | `simulator.rs` | OPEN — The Rust simulator computes the 4 on-chain signals plus the H-2 reporter slot (default `0`, no reporter feed simulated off-chain). Reporter submissions are not replayed. |
+| L-3 | **No event for WeightedRiskModel weight changes** | `WeightedRiskModel.sol` | FIXED — `setWeights()` emits `WeightsUpdated`; `setReporterWeight()` emits `ReporterWeightUpdated`. |
 | L-4 | **ThresholdPolicy has no event for threshold/fee changes** | `ThresholdPolicy.sol` | OPEN — `setThresholds()` and `setFees()` have no event emissions. |
 | L-5 | **MedianOracle gas cost scales quadratically** | `MedianOracle.sol` | OPEN — Insertion sort on N sources is O(N²). With many oracle sources, gas cost increases rapidly. Current deployment uses ≤3 sources so this is acceptable. |
 | L-6 | **`computeFeeFromRisk` in Rust uses `u128::MAX` as final threshold** | `math.rs` | INFO — The final threshold entry `(u128::MAX, 12000)` means any risk ≥ 0.8e18 returns tier 4 (12000). This matches Solidity but could theoretically overflow on very large risk values. In practice, risk is capped at SCALE=1e18 so this is safe. |
@@ -986,13 +986,17 @@ Executes a single 0.1-token swap through the live pool.
 | ONE_MINUS_ALPHA | 0.9e18 | 900_000_000_000_000_000 | ✅ |
 | FLOW_STEP | 1e18 | 1_000_000_000_000_000_000 | ✅ |
 | MAX_FLOW | 10e18 | 10_000_000_000_000_000_000 | ✅ |
-| STALE_FALLBACK_RISK | 0.5e18 | 500_000_000_000_000_000 | ✅ |
-| STALENESS_WINDOW | 60 minutes | Not implemented | N/A (Rust is offline) |
+| STALE_FALLBACK_RISK | 1e18 | 1_000_000_000_000_000_000 | ✅ |
+| STALENESS_WINDOW (default) | 5 minutes | Not implemented | N/A (Rust is offline) |
 | Threshold 1 | 0.2e18 → 4000 | 200_000_000_000_000_000 → 4000 | ✅ |
 | Threshold 2 | 0.4e18 → 6000 | 400_000_000_000_000_000 → 6000 | ✅ |
 | Threshold 3 | 0.6e18 → 9000 | 600_000_000_000_000_000 → 9000 | ✅ |
 | Threshold 4 | 0.8e18 → 12000 | 800_000_000_000_000_000 → 12000 | ✅ |
 | WeightedRisk default weights | vol=0.3e18, inv=0.2e18, oracle=0.2e18, whale=0.3e18 | Same | ✅ |
+| REPORTER_WEIGHT (H-2) | 0.3e18 | 300_000_000_000_000_000 | ✅ |
+| REFERENCE_SIZE (M-5) | 1e18 | 1_000_000_000_000_000_000 | ✅ |
+| REBALANCE_DISCOUNT (M-4) | 0.5e18 | 500_000_000_000_000_000 | ✅ |
+| MAX_PRESSURE | 0.3e18 | 300_000_000_000_000_000 | ✅ |
 
 ---
 
@@ -1004,21 +1008,21 @@ Executes a single 0.1-token swap through the live pool.
 
 2. **Redeploy hook with 8-param constructor** (H-1): The deployed hook lacks `AnalyticsEngine` integration. Redeploy with the updated `Deploy.s.sol`.
 
-3. **Wire off-chain reporter signals into risk computation** (H-2): Either read the 5 off-chain signal fields in `WeightedRiskModel.risk()`, or document why they exist but don't affect fees.
+3. ~~**Wire off-chain reporter signals into risk computation** (H-2)~~ — **RESOLVED**: `WeightedRiskModel.risk()` now reads the 5 off-chain fields via `maxFreshReporterScore` and weights them with the owner-tunable `reporterWeight` (default `0.3e18`), gated per-field by H-3 deadlines.
 
 ### Priority 2 (Medium — Should Fix)
 
-4. **Add emergency pause mechanism** (M-2): Implement `pauseSwaps` logic in `ThresholdPolicy.action()` and add an owner-callable pause function.
+4. ~~**Add emergency pause mechanism** (M-2)~~ — **RESOLVED**: circuit breaker sets `pauseSwaps` above 0.95e18 with 0.10e18 dead-band hysteresis.
 
 5. **Add rate limiting or cooldown for reporter submissions** (M-3): Consider a minimum block delay between submissions for the same pool/signal type.
 
-6. **Emit events on parameter changes** (L-3, L-4): Add events to `WeightedRiskModel.setWeights()`, `ThresholdPolicy.setThresholds()`, and `ThresholdPolicy.setFees()`.
+6. **Emit events on parameter changes** (L-4): Add events to `ThresholdPolicy.setThresholds()` and `ThresholdPolicy.setFees()` (`WeightedRiskModel` events are done: `WeightsUpdated`, `ReporterWeightUpdated`).
 
-7. **Consider trade-size-aware risk** (M-1): The `tradeSize` parameter is already in the interface but unused. Consider incorporating it when whale score is low.
+7. ~~**Consider trade-size-aware risk** (M-1)~~ — **RESOLVED**: trade size now feeds the size/liquidity pressure term in `WeightedRiskModel.risk()`.
 
 ### Priority 3 (Low — Nice to Have)
 
-8. **Improve oracle failure handling** (M-6): Instead of silently returning 0 divergence, consider returning a sentinel value or emitting an event.
+8. ~~**Improve oracle failure handling** (M-6)~~ — **RESOLVED**: oracle price `0` now yields divergence `1e18` plus an `OracleUnavailable(poolId, timestamp)` event instead of a silent 0.
 
 9. **Reduce MedianOracle gas cost** (L-5): Consider using a more efficient sorting algorithm for large source counts.
 

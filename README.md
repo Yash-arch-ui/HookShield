@@ -195,33 +195,35 @@ Signals share the `ISignal` convention — `compute()` returns the current norma
 | # | Signal | Triggered | Storage | Formula | Meaning of `1e18` |
 |---|---|---|---|---|---|
 | 1 | **VolatilitySignal** | `afterSwap` (dust-filtered) | `VolatilityStorage` | dual EWMA on returns (see [§5](#5-volatility--the-math-library)) | extreme volatility |
-| 2 | **InventorySignal** | `afterSwap` | `InventoryStorage` | `netFlow ± 1e18/swap`, clamped `±10e18`; `skew = |netFlow| / 10e18` | fully one-sided flow |
+| 2 | **InventorySignal** | `afterSwap` | `InventoryStorage` | `netFlow ± tradeSize` (step = `FLOW_STEP·tradeSize/REFERENCE_SIZE`), clamped `±10e18`; `skew = |netFlow| / 10e18` | fully one-sided flow |
 | 3 | **OracleDivergenceSignal** | `afterSwap` | `OracleDivergenceStorage` | `|oraclePrice − poolPrice| / oraclePrice`, capped | pool completely off-market |
 | 4 | **WhaleScoreSignal** | **`beforeSwap`** (stateless) | — (direct to `SignalState`) | `2·|√P_next − √P| / √P` via `SqrtPriceMath.getNextSqrtPriceFromInput`, capped | price impact ≥ 100% |
 
 Details:
 
 - **VolatilitySignal** — rejects observations below `minObservationSize` (owner-tunable dust filter): state doesn't advance and the old reading ages out naturally instead of being kept alive by junk trades.
-- **InventorySignal** — signed `netFlow` (>0 = skewed toward `zeroForOne`), also exposed via `netFlow()` so the policy can distinguish *worsening* vs *rebalancing* swaps.
-- **OracleDivergenceSignal** — pool price derived from `sqrtPriceX96² / 2^192` with a 128-bit split to avoid overflow; oracle failures are caught and yield divergence `0` (see [Known Limitations](#known-limitations)).
-- **WhaleScoreSignal** — zero liquidity + non-zero trade ⇒ score `1e18`; zero trade ⇒ `0`. It answers *"what will this exact swap do to price?"* before it runs.
+- **InventorySignal** — signed `netFlow` (>0 = skewed toward `zeroForOne`), also exposed via `netFlow()` so the policy can distinguish *worsening* vs *rebalancing* swaps. The per-swap step is **size-scaled (M-5)**: `FLOW_STEP × tradeSize / 1e18`, clamped to `MAX_FLOW`, so a dust trade nudges flow negligibly while a whale trade moves it by up to `±10e18` in one swap. A reference-size (`1e18`) trade reproduces the legacy full step.
+- **OracleDivergenceSignal** — pool price derived from `sqrtPriceX96² / 2^192` with a 128-bit split to avoid overflow; when the oracle price is `0` the signal publishes `1e18` (max divergence) and emits `OracleUnavailable` instead of silently reporting `0` **(M-6 fixed)**. A never-observed pool publishes `0`.
+- **WhaleScoreSignal** — zero liquidity + non-zero trade ⇒ score `1e18`; zero trade ⇒ `0`. It answers *"what will this exact swap do to price?"* before it runs. The score is **direction-aware (M-4)**: `adjust_for_direction` halves the raw impact when the swap *rebalances* the pool's inventory (sells into an over-supplied side), while a swap that worsens skew keeps its full impact.
 
 ### 3. `WeightedRiskModel`
 
-Combines the four published signals plus a size-pressure term into one score.
+Combines the four published signals, the freshest off-chain reporter scores, and a size-pressure term into one score.
 
 ```text
 riskE18 = (volatility·w_vol + inventorySkew·w_inv + oracleDivergence·w_oracle + whaleScore·w_whale) / 1e18
+         + maxFreshReporterScore × reporterWeight / 1e18   ← H-2 reporter term
          + min(tradeSize/liquidity × 1e18, 0.3e18)          ← size/liquidity pressure (P2)
          → capped at 1e18
 ```
 
 - Weights **must sum to exactly `1e18`** (enforced in constructor and `setWeights`, emits `WeightsUpdated`).
 - `signalState.isStale(poolId)` ⇒ return `STALE_FALLBACK_RISK = 1e18` immediately.
+- **Reporter term (H-2 fixed):** `max()` over the five reporter scores (JIT, sandwich, flashloan, toxic flow, MEV), each included only while **fresh under its own deadline** (H-3). The weight is owner-tunable via `setReporterWeight` (`<= 1e18`, default `0.3e18`, emits `ReporterWeightUpdated`). Reporter staleness only zeroes its own term — it does **not** trigger the pool-level stale fallback, so expired reports decay instead of escalating fees.
 - Pressure term `MAX_PRESSURE = 0.3e18` — a trade whose notional equals active liquidity produces full pressure; anything larger is clamped, so a whale can't overflow the sum and a single term never dominates alone.
 - `isStale()` passthrough lets the hook skip pause enforcement while stale.
 
-**Deployment weights:** volatility `0.3`, inventory `0.2`, oracle divergence `0.2`, whale `0.3`.
+**Deployment weights:** volatility `0.3`, inventory `0.2`, oracle divergence `0.2`, whale `0.3`, reporter `0.3` (additive).
 
 ### 4. `ThresholdPolicy` — the fee policy
 
@@ -326,7 +328,7 @@ Receives **EIP-712-signed** off-chain risk reports (sandwich, flashloan, toxic f
 - Checks: signer ∈ `authorizedReporters` (owner-managed), strictly increasing `nonce` per signer (replay protection), `block.timestamp < validUntil` (expiry), valid enum discriminator.
 - Paired Rust crate **`reporter-common`** builds and signs the same struct off-chain (alloy), so reporters and contract share one typed definition.
 
-> ⚠️ Reporter scores are stored but **not yet read by `WeightedRiskModel`** — see [Known Limitations](#known-limitations).
+> ✅ Reporter scores are now read by `WeightedRiskModel` (H-2/H-3): each signal type carries its own `validUntil` deadline stamped at report time; `maxFreshReporterScore` feeds a `reporterWeight`-weighted term before the final SCALE clamp.
 
 ---
 
@@ -341,6 +343,9 @@ Receives **EIP-712-signed** off-chain risk reports (sandwich, flashloan, toxic f
 | Signal staleness window | `5 minutes` (tunable `30 s – 60 min`) | `SignalState` |
 | Stale fallback risk | `1e18` (max fee) | `WeightedRiskModel` |
 | Size/liquidity pressure cap | `0.3e18` | `WeightedRiskModel` |
+| Reporter weight | `0.3e18` (owner-tunable) | `WeightedRiskModel` |
+| Inventory reference size | `1e18` (flow step scales as `tradeSize / 1e18`) | `InventorySignal` |
+| Rebalance discount (M-4) | `0.5e18` (halves impact on rebalancing swaps) | `WhaleScoreSignal` |
 | Deployment risk weights | vol `0.3` / inv `0.2` / oracle `0.2` / whale `0.3` | `Deploy.s.sol` |
 | Base fee / max fee | `3000` / `12000` pips (0.30% / 1.20%) | `ThresholdPolicy` |
 | Fee curve | quadratic, `3000 + 9000·risk²` | `ThresholdPolicy` |
@@ -385,16 +390,11 @@ Tracked openly in [`AUDITREPORT3.md`](./AUDITREPORT3.md) (also [`AUDIT_REPORT.md
 
 | ID | Finding | Status |
 |---|---|---|
-| H-2 | Reporter off-chain scores (JIT/sandwich/…) are stored but not read by `WeightedRiskModel.risk()` | Open — wiring them in also requires the staleness handling from H-3 |
-| H-3 | If/when reporter scores enter the risk sum, their staleness must be enforced per-field | Open — design pending |
 | M-3 | No rate limiting on `ReporterSignalStore` (nonce must increase, but no cooldown) | Open |
-| M-4 | Whale score uses absolute impact — equal-size buy/sell score identically (direction-insensitive) | Open |
-| M-5 | Inventory flow step is size-agnostic (`1e18` regardless of trade size) | Open |
-| M-6 | Oracle unavailable ⇒ divergence silently `0` (masks oracle failure as "no divergence") | Open |
 | L-1 | Rust fetcher: same-block swaps reuse previous block's `sqrtPriceX96` as "before" price | Open — simulator fidelity only |
 | L-4 | `setThresholds` / `setFees` emit no events | Open |
 
-Resolved since those reports: **M-1** (trade size now feeds the pressure term), **M-2** (circuit breaker implemented, P3), **H-1** (latest Sepolia deployment uses the current 8-argument constructor including `AnalyticsEngine`), **L-3** (`setWeights` emits `WeightsUpdated`).
+Resolved since those reports: **M-1** (trade size now feeds the pressure term), **M-2** (circuit breaker implemented, P3), **H-1** (latest Sepolia deployment uses the current 8-argument constructor including `AnalyticsEngine`), **L-3** (`setWeights` emits `WeightsUpdated`), **H-2** (fresh reporter max feeds `WeightedRiskModel` via `reporterWeight`, default `0.3e18`), **H-3** (per-field reporter deadlines enforced at read time; reporter staleness zeroes its own term only), **M-4** (whale impact halved on rebalancing swaps), **M-5** (inventory flow step scales with trade size), **M-6** (oracle failure ⇒ divergence `1e18` + `OracleUnavailable` event).
 
 ---
 
@@ -637,9 +637,9 @@ forge script script/Deploy.s.sol:Deploy --rpc-url $SEPOLIA_RPC_URL --broadcast
 - [x] EIP-712 reporter pipeline (`ReporterSignalStore` + `reporter-common`)
 - [x] Rust backtest simulator (static vs dynamic fees, LVR reduction)
 - [x] Sepolia deployment with CREATE2-mined hook address
-- [ ] Wire reporter scores (JIT/sandwich/flashloan/toxic/MEV) into `WeightedRiskModel` with per-field staleness (H-2/H-3)
-- [ ] Size-scaled inventory flow (replace fixed `1e18` step, M-5)
-- [ ] Directional whale score (M-4) and oracle-failure signalling (M-6)
+- [x] Wire reporter scores (JIT/sandwich/flashloan/toxic/MEV) into `WeightedRiskModel` with per-field staleness (H-2/H-3)
+- [x] Size-scaled inventory flow (replace fixed `1e18` step, M-5)
+- [x] Directional whale score (M-4) and oracle-failure signalling (M-6)
 - [ ] Rate limiting for reporter submissions (M-3)
 - [ ] Admin-change events on `setThresholds` / `setFees` (L-4)
 - [ ] Multi-pool production deployment & signal routing
