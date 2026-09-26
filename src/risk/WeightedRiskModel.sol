@@ -53,7 +53,12 @@ contract WeightedRiskModel is IRiskModel, Ownable {
 
     /// @param tradeSize Absolute size of the incoming swap (token units).
     /// @param liquidity Current in-range pool liquidity for the pool.
-    function risk(PoolId poolId, uint256 tradeSize, uint256 liquidity) external view override returns (uint256 riskE18) {
+    function risk(PoolId poolId, uint256 tradeSize, uint256 liquidity)
+        external
+        view
+        override
+        returns (uint256 riskE18)
+    {
         // P0: any expired core signal -> max risk -> max fee.
         if (signalState.isStale(poolId)) {
             return STALE_FALLBACK_RISK;
