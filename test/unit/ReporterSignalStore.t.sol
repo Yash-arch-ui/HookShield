@@ -47,23 +47,19 @@ contract ReporterSignalStoreTest is Test {
         );
     }
 
-    function _structHash(
-        bytes32 poolId_,
-        uint8 signalType,
-        uint256 score,
-        uint256 nonce,
-        uint256 validUntil
-    ) internal pure returns (bytes32) {
+    function _structHash(bytes32 poolId_, uint8 signalType, uint256 score, uint256 nonce, uint256 validUntil)
+        internal
+        pure
+        returns (bytes32)
+    {
         return keccak256(abi.encode(SIGNAL_REPORT_TYPEHASH, poolId_, signalType, score, nonce, validUntil));
     }
 
-    function _digest(
-        bytes32 poolId_,
-        uint8 signalType,
-        uint256 score,
-        uint256 nonce,
-        uint256 validUntil
-    ) internal view returns (bytes32) {
+    function _digest(bytes32 poolId_, uint8 signalType, uint256 score, uint256 nonce, uint256 validUntil)
+        internal
+        view
+        returns (bytes32)
+    {
         bytes32 structHash = _structHash(poolId_, signalType, score, nonce, validUntil);
         return keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
     }
@@ -122,9 +118,8 @@ contract ReporterSignalStoreTest is Test {
     }
 
     function _submitAndVerify(uint8 signalType, uint256 score, uint256 nonce) internal {
-        (uint8 v, bytes32 r, bytes32 s) = _sign(
-            REPORTER_KEY, PoolId.unwrap(poolId), signalType, score, nonce, block.timestamp + 1 hours
-        );
+        (uint8 v, bytes32 r, bytes32 s) =
+            _sign(REPORTER_KEY, PoolId.unwrap(poolId), signalType, score, nonce, block.timestamp + 1 hours);
 
         ReporterSignalStore.SignalReport memory report = ReporterSignalStore.SignalReport({
             poolId: PoolId.unwrap(poolId),
@@ -157,7 +152,13 @@ contract ReporterSignalStoreTest is Test {
         uint256 unauthorizedKey = 0xDEAD;
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(
             unauthorizedKey,
-            _digest(PoolId.unwrap(poolId), uint8(ReporterSignalStore.SignalType.Sandwich), 0.5e18, 1, block.timestamp + 1 hours)
+            _digest(
+                PoolId.unwrap(poolId),
+                uint8(ReporterSignalStore.SignalType.Sandwich),
+                0.5e18,
+                1,
+                block.timestamp + 1 hours
+            )
         );
 
         ReporterSignalStore.SignalReport memory report = ReporterSignalStore.SignalReport({
@@ -201,12 +202,7 @@ contract ReporterSignalStoreTest is Test {
         uint256 validUntil = block.timestamp + 1 hours;
 
         (uint8 v, bytes32 r, bytes32 s) = _sign(
-            REPORTER_KEY,
-            PoolId.unwrap(poolId),
-            uint8(ReporterSignalStore.SignalType.Sandwich),
-            0.5e18,
-            1,
-            validUntil
+            REPORTER_KEY, PoolId.unwrap(poolId), uint8(ReporterSignalStore.SignalType.Sandwich), 0.5e18, 1, validUntil
         );
 
         ReporterSignalStore.SignalReport memory report = ReporterSignalStore.SignalReport({
