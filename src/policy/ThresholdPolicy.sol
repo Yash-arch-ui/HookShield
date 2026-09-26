@@ -34,7 +34,7 @@ contract ThresholdPolicy is IPolicy, Ownable {
     /// @notice Dead-band width: while paused, risk must fall to
     ///         (haltThreshold - unpauseBand) before swaps resume. Prevents the
     ///         pause flag from flickering on/off every swap around the threshold.
-    uint256 public unpauseBand = 0.10e18;
+    uint256 public unpauseBand = 0.1e18;
 
     /// @notice Per-pool pause latch. Set/cleared by action() with hysteresis.
     mapping(PoolId => bool) public pausedSwaps;
@@ -53,8 +53,8 @@ contract ThresholdPolicy is IPolicy, Ownable {
         returns (PolicyAction memory)
     {
         // Quadratic curve: continuous, base fee at risk=0, tier4Fee at risk=1e18.
-        uint256 fee = uint256(tier0Fee)
-            + ((uint256(tier4Fee) - uint256(tier0Fee)) * riskE18 * riskE18) / (SCALE * SCALE);
+        uint256 fee =
+            uint256(tier0Fee) + ((uint256(tier4Fee) - uint256(tier0Fee)) * riskE18 * riskE18) / (SCALE * SCALE);
 
         // Direction-aware inventory adjustment (P2).
         // netFlow > 0 = previous swaps skewed toward zeroForOne.
