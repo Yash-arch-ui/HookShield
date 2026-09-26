@@ -61,6 +61,8 @@ impl SimulationState {
     ) -> Result<PendingSwap, String> {
         // 1. Whale impact uses CURRENT (pre-swap) price and liquidity — written
         //    in beforeSwap so THIS swap's fee reflects its own impact.
+        //    M-4: pre-swap net_flow drives the direction adjustment (the hook
+        //    reads it once in beforeSwap and passes it to whaleSignal.update).
         let whale_score = if self.last_sqrt_price_x96 == 0 {
             // First swap: no prior price — conservative SCALE fallback.
             if amount_in == 0 { 0 } else { SCALE }
@@ -70,6 +72,7 @@ impl SimulationState {
                 liquidity,
                 amount_in,
                 zero_for_one,
+                self.net_flow,
             )?
         };
 
@@ -79,6 +82,9 @@ impl SimulationState {
             inventory_skew: flow_to_skew(self.net_flow),
             oracle_divergence: 0, // not modeled yet
             whale_score,
+            // H-2: the sim has no reporter feed (off-chain submissions), so the
+            // reporter term contributes 0 — same as a pool with no reports.
+            reporter_max_score: 0,
         };
 
         // 3. Stage next volatility state — P1 dust filter: trades below
@@ -102,8 +108,9 @@ impl SimulationState {
         };
 
         // Inventory updates regardless of the dust filter (it has no size filter
-        // on-chain — only VolatilitySignal does).
-        let next_net_flow = update_inventory_flow(self.net_flow, zero_for_one);
+        // on-chain — only VolatilitySignal does). M-5: the flow step scales with
+        // the trade size (afterSwap passes tradeSize to inventorySignal.update).
+        let next_net_flow = update_inventory_flow(self.net_flow, zero_for_one, amount_in);
 
         Ok(PendingSwap {
             snapshot,
@@ -187,8 +194,17 @@ mod tests {
             prev_skew = snap.inventory_skew;
         }
 
-        // After 10 zeroForOne swaps, net_flow should be at MAX_FLOW
-        assert_eq!(state.net_flow, 10_000_000_000_000_000_000); // 10e18
+        // M-5: each 1e6-sized swap moves flow by 1e6 (scaled by trade size);
+        // 10 swaps accumulate to 1e7 — nowhere near the 10e18 cap.
+        assert_eq!(state.net_flow, 10_000_000); // 10 * 1e6
+    }
+
+    #[test]
+    fn test_reference_size_swap_moves_full_flow_step() {
+        // M-5: a REFERENCE_SIZE (1e18) trade reproduces the legacy full step.
+        let mut state = SimulationState::new();
+        let _ = state.process_swap(1000, 500, 1_000_000_000_000_000_000, true).unwrap();
+        assert_eq!(state.net_flow, 1_000_000_000_000_000_000); // 1e18
     }
 
     #[test]
@@ -206,7 +222,8 @@ mod tests {
         assert_eq!(state.last_sqrt_price_x96, price_before, "dust must not advance price");
         assert_eq!(state.ewma_volatility, vol_before, "dust must not change vol");
         // Inventory still updates (no dust filter on-chain for inventory).
-        assert_eq!(state.net_flow, 2_000_000_000_000_000_000); // 2e18
+        // M-5: flow steps scale with size → 2e6 + 999_999.
+        assert_eq!(state.net_flow, 2_999_999);
 
         // At threshold: accepted.
         let _ = state.process_swap(7777, 500, 1_000_000, true).unwrap();
@@ -229,7 +246,8 @@ mod tests {
         // Committing applies it.
         state.commit(pending);
         assert_eq!(state.last_sqrt_price_x96, 5000);
-        assert_eq!(state.net_flow, flow_before + 1_000_000_000_000_000_000);
+        // M-5: 1e6-sized trade → 1e6 flow step (scaled by trade size).
+        assert_eq!(state.net_flow, flow_before + 1_000_000);
     }
 
     #[test]
@@ -237,7 +255,8 @@ mod tests {
         let mut state = SimulationState::new();
         let _ = state.process_swap(1000, 500, 1_000_000, true).unwrap();
         let pending = state.plan_swap(1100, 500, 1_000_000, false).unwrap();
-        // Pre-swap flow reflects the FIRST swap (+1e18), not yet the second.
-        assert_eq!(pending.net_flow, 1_000_000_000_000_000_000);
+        // Pre-swap flow reflects the FIRST swap (+1e6 under M-5 scaling),
+        // not yet the second.
+        assert_eq!(pending.net_flow, 1_000_000);
     }
 }

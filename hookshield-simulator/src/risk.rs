@@ -7,6 +7,10 @@ pub const STALE_FALLBACK_RISK: u128 = SCALE; // 1e18
 /// P2: cap on the size/liquidity pressure term (WeightedRiskModel.sol).
 pub const MAX_PRESSURE: u128 = 300_000_000_000_000_000; // 0.3e18
 
+/// H-2: weight of the reporter-score term (WeightedRiskModel.sol
+/// DEFAULT_REPORTER_WEIGHT). Additive on top of the four core weights.
+pub const DEFAULT_REPORTER_WEIGHT: u128 = 300_000_000_000_000_000; // 0.3e18
+
 pub struct SignalWeights {
     pub volatility: u128,
     pub inventory_skew: u128,
@@ -20,16 +24,34 @@ pub struct SignalSnapshot {
     pub inventory_skew: u128,
     pub oracle_divergence: u128,
     pub whale_score: u128,
+    /// H-2: max FRESH off-chain reporter score (0 when none reported / all
+    /// expired). Weighted by `reporter_weight` — the sim has no reporter feed,
+    /// so it stays 0 in replay (mirrors a pool with no reports submitted).
+    pub reporter_max_score: u128,
 }
 
 /// Mirrors WeightedRiskModel.risk(poolId, tradeSize, liquidity):
 ///   1. stale → STALE_FALLBACK_RISK (SCALE)
 ///   2. weighted sum of the four signals
-///   3. + size/liquidity pressure, clamped at MAX_PRESSURE (P2)
-///   4. capped at SCALE
+///   3. + fresh reporter max × reporter_weight (H-2)
+///   4. + size/liquidity pressure, clamped at MAX_PRESSURE (P2)
+///   5. capped at SCALE
 pub fn compute_weighted_risk(
     snapshot: &SignalSnapshot,
     weights: &SignalWeights,
+    is_stale: bool,
+    trade_size: u128,
+    liquidity: u128,
+) -> Result<u128, String> {
+    compute_weighted_risk_with_reporter(snapshot, weights, DEFAULT_REPORTER_WEIGHT, is_stale, trade_size, liquidity)
+}
+
+/// H-2: same as `compute_weighted_risk` but with an explicit reporter weight
+/// (mirrors the owner-settable `reporterWeight` on-chain).
+pub fn compute_weighted_risk_with_reporter(
+    snapshot: &SignalSnapshot,
+    weights: &SignalWeights,
+    reporter_weight: u128,
     is_stale: bool,
     trade_size: u128,
     liquidity: u128,
@@ -65,6 +87,11 @@ pub fn compute_weighted_risk(
 
     let mut risk = sum / SCALE;
 
+    // H-2: reporter term — max fresh reporter score scaled by reporter_weight.
+    if reporter_weight > 0 && snapshot.reporter_max_score > 0 {
+        risk = risk.saturating_add((snapshot.reporter_max_score * reporter_weight) / SCALE);
+    }
+
     // P2: trade-size / liquidity pressure (U256: trade * SCALE can overflow u128).
     if liquidity > 0 {
         let raw = U256::from(trade_size) * U256::from(SCALE) / U256::from(liquidity);
@@ -95,6 +122,7 @@ mod tests {
             inventory_skew: 0,
             oracle_divergence: 0,
             whale_score: 0,
+            reporter_max_score: 0,
         }
     }
 
@@ -105,6 +133,7 @@ mod tests {
             inventory_skew: 999_000_000_000_000_000,
             oracle_divergence: 999_000_000_000_000_000,
             whale_score: 999_000_000_000_000_000,
+            reporter_max_score: 0,
         };
         let weights = default_weights();
         let result = compute_weighted_risk(&snapshot, &weights, true, 0, 0).unwrap();
@@ -129,6 +158,7 @@ mod tests {
             inventory_skew: 0,
             oracle_divergence: 0,
             whale_score: 0,
+            reporter_max_score: 0,
         };
         let weights = default_weights();
         let result = compute_weighted_risk(&snapshot, &weights, false, 0, 0).unwrap();
@@ -144,6 +174,7 @@ mod tests {
             inventory_skew: SCALE,
             oracle_divergence: SCALE,
             whale_score: SCALE,
+            reporter_max_score: 0,
         };
         let weights = default_weights();
         let result = compute_weighted_risk(&snapshot, &weights, false, 0, 0).unwrap();
@@ -183,10 +214,76 @@ mod tests {
             inventory_skew: 0,
             oracle_divergence: 0,
             whale_score: 0,
+            reporter_max_score: 0,
         };
         let weights = default_weights();
         let result =
             compute_weighted_risk(&snapshot, &weights, false, SCALE / 4, SCALE).unwrap();
         assert_eq!(result, 400_000_000_000_000_000);
+    }
+
+    // ── H-2: reporter term ──────────────────────────────────────────────
+
+    #[test]
+    fn test_h2_reporter_score_increases_risk() {
+        // All core signals 0 → base 0; reporter max 1e18 × 0.3e18 → 0.3e18.
+        let mut snapshot = zero_snapshot();
+        snapshot.reporter_max_score = SCALE;
+        let weights = default_weights();
+        let result = compute_weighted_risk(&snapshot, &weights, false, 0, 0).unwrap();
+        assert_eq!(result, DEFAULT_REPORTER_WEIGHT);
+    }
+
+    #[test]
+    fn test_h2_reporter_term_capped_at_reporter_weight() {
+        // Reporter at SCALE cannot push beyond its weight (before final clamp).
+        let mut snapshot = zero_snapshot();
+        snapshot.reporter_max_score = SCALE;
+        let weights = default_weights();
+        let result =
+            compute_weighted_risk(&snapshot, &weights, false, 0, 0).unwrap();
+        assert_eq!(result, DEFAULT_REPORTER_WEIGHT);
+        assert_eq!(result, 300_000_000_000_000_000);
+    }
+
+    #[test]
+    fn test_h2_no_reporter_no_contribution() {
+        let weights = default_weights();
+        let result = compute_weighted_risk(&zero_snapshot(), &weights, false, 0, 0).unwrap();
+        assert_eq!(result, 0, "no reports (score 0) must add nothing");
+    }
+
+    #[test]
+    fn test_h2_reporter_weight_zero_disables_term() {
+        let mut snapshot = zero_snapshot();
+        snapshot.reporter_max_score = SCALE;
+        let weights = default_weights();
+        let result = compute_weighted_risk_with_reporter(&snapshot, &weights, 0, false, 0, 0).unwrap();
+        assert_eq!(result, 0, "reporter_weight = 0 must disable the term");
+    }
+
+    #[test]
+    fn test_h2_reporter_stacks_with_core_and_clamps() {
+        // default weights: vol 0.5e18 × 0.3e18 = 0.15e18,
+        // reporter 1e18 × 0.3e18 = 0.3e18, pressure (trade == liq) = 0.3e18
+        // → 0.75e18 (below SCALE).
+        let mut snapshot = zero_snapshot();
+        snapshot.volatility = 500_000_000_000_000_000;
+        snapshot.reporter_max_score = SCALE;
+        let weights = default_weights();
+        let result =
+            compute_weighted_risk(&snapshot, &weights, false, SCALE, SCALE).unwrap();
+        assert_eq!(result, 750_000_000_000_000_000); // 0.75e18
+    }
+
+    #[test]
+    fn test_h2_stale_core_short_circuits_over_reporter() {
+        // Even with a fresh reporter, stale core → STALE_FALLBACK_RISK.
+        let mut snapshot = zero_snapshot();
+        snapshot.volatility = 500_000_000_000_000_000;
+        snapshot.reporter_max_score = SCALE;
+        let weights = default_weights();
+        let result = compute_weighted_risk(&snapshot, &weights, true, 0, 0).unwrap();
+        assert_eq!(result, STALE_FALLBACK_RISK);
     }
 }
