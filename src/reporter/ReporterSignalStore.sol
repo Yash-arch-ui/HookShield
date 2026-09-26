@@ -14,7 +14,13 @@ import {PoolId} from "v4-core/types/PoolId.sol";
 contract ReporterSignalStore is EIP712, Ownable {
     using ECDSA for bytes32;
 
-    enum SignalType { Sandwich, Flashloan, ToxicFlow, Jit, Mev }
+    enum SignalType {
+        Sandwich,
+        Flashloan,
+        ToxicFlow,
+        Jit,
+        Mev
+    }
 
     struct SignalReport {
         bytes32 poolId;
@@ -37,10 +43,7 @@ contract ReporterSignalStore is EIP712, Ownable {
     mapping(address => bool) public authorizedReporters;
     mapping(address => uint256) public lastNonce;
 
-    constructor(address _signalState, address initialOwner)
-        EIP712("HookShieldReporter", "1")
-        Ownable(initialOwner)
-    {
+    constructor(address _signalState, address initialOwner) EIP712("HookShieldReporter", "1") Ownable(initialOwner) {
         signalState = SignalState(_signalState);
     }
 
