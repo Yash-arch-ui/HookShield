@@ -113,7 +113,7 @@ contract ThresholdPolicyTest is Test {
         policy.action(poolId, 0.96e18, true, 0);
 
         // Still paused anywhere above haltThreshold - unpauseBand (0.85e18).
-        PolicyAction memory act = policy.action(poolId, 0.90e18, true, 0);
+        PolicyAction memory act = policy.action(poolId, 0.9e18, true, 0);
         assertTrue(act.pauseSwaps, "0.90e18 is inside the dead-band - must stay paused");
 
         act = policy.action(poolId, 0.86e18, true, 0);
