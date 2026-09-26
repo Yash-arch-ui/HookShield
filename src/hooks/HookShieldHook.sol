@@ -99,7 +99,13 @@ contract HookShieldHook is IHooks {
         //      be exploited by the swapper because the fee is deterministic given
         //      the trade size and current liquidity — both of which the swapper
         //      already controls via amountSpecified.
-        whaleSignal.update(poolId, tradeSize, params.zeroForOne);
+
+        // Read the pre-swap signed net flow ONCE — shared by the whale score
+        // (M-4 direction adjustment) and the policy (P2 direction-aware fee),
+        // so both see the same inventory picture for this swap.
+        int256 netFlow = inventorySignal.netFlow(poolId);
+
+        whaleSignal.update(poolId, tradeSize, params.zeroForOne, netFlow);
 
         // P2: pass trade size AND current in-range liquidity so the risk model
         // can score size/liquidity pressure, not just the historical signals.
@@ -110,7 +116,7 @@ contract HookShieldHook is IHooks {
         // P2: direction-aware fee — the policy compares this swap's direction
         // against the pool's signed inventory flow to surcharge worsening swaps
         // and discount rebalancing ones.  Also P3: may latch the pause flag.
-        PolicyAction memory act = policy.action(poolId, riskE18, params.zeroForOne, inventorySignal.netFlow(poolId));
+        PolicyAction memory act = policy.action(poolId, riskE18, params.zeroForOne, netFlow);
 
         // P3: enforce the extreme-risk circuit breaker — BUT only while signals
         // are fresh.  When stale, risk escalates to SCALE which would latch the
@@ -144,7 +150,8 @@ contract HookShieldHook is IHooks {
 
         // P1: pass tradeSize so VolatilitySignal can drop dust observations.
         volatilitySignal.update(poolId, currentSqrtPriceX96, tradeSize);
-        inventorySignal.update(poolId, params.zeroForOne);
+        // M-5: pass tradeSize so the inventory flow step scales with swap size.
+        inventorySignal.update(poolId, params.zeroForOne, tradeSize);
         oracleSignal.update(poolId, currentSqrtPriceX96);
 
         analyticsEngine.recordSwap(PoolId.unwrap(poolId), tradeSize, _lastRiskE18, latestFee, params.zeroForOne);

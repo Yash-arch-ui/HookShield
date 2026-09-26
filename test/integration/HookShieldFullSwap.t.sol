@@ -277,9 +277,10 @@ contract HookShieldFullSwapTest is Test {
         assertGt(snap.inventorySkew, 0, "inventory skew should be positive after a zeroForOne swap");
     }
 
-    /// @notice Each zeroForOne swap adds FLOW_STEP (1e18) to netFlow; after 10 swaps
-    ///         netFlow hits MAX_FLOW (10e18) and the normalised skew saturates at 1e18.
-    ///         Deep liquidity is added first so the price doesn't pin at the limit.
+    /// @notice Each zeroForOne swap of REFERENCE_SIZE (1e18) adds FLOW_STEP (1e18)
+    ///         to netFlow (M-5 scales the step by trade size); after 10 swaps
+    ///         netFlow hits MAX_FLOW (10e18) and the normalised skew saturates at
+    ///         1e18. Deep liquidity is added first so the price doesn't pin at the limit.
     function test_RepeatedSameDirectionSwaps_IncreaseSkewTowardMax() public {
         liquidityRouter.modifyLiquidity(
             poolKey,
@@ -290,7 +291,7 @@ contract HookShieldFullSwapTest is Test {
         uint256 previousSkew;
 
         for (uint256 i; i < 10; i++) {
-            _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
+            _swap(SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
 
             SignalSnapshot memory snap = signalState.getSnapshot(poolId);
             assertGt(snap.inventorySkew, previousSkew, "skew should increase each iteration");
@@ -302,8 +303,8 @@ contract HookShieldFullSwapTest is Test {
         assertEq(finalSnap.inventorySkew, 1e18, "skew should reach the cap after 10 same-direction swaps");
     }
 
-    /// @notice Three zeroForOne swaps build netFlow to +3e18 (skew 0.3e18).
-    ///         One opposite-direction swap brings netFlow to +2e18 (skew 0.2e18).
+    /// @notice Three reference-size zeroForOne swaps build netFlow to +3e18 (skew 0.3e18).
+    ///         One opposite-direction reference-size swap brings netFlow to +2e18 (skew 0.2e18).
     ///         Deep liquidity is added first so consecutive same-direction swaps are possible.
     function test_OppositeDirectionSwap_ReducesSkew() public {
         liquidityRouter.modifyLiquidity(
@@ -313,14 +314,14 @@ contract HookShieldFullSwapTest is Test {
         );
 
         for (uint256 i; i < 3; i++) {
-            _swap(SwapParams({zeroForOne: true, amountSpecified: -1e17, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
+            _swap(SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: MIN_SQRT_PRICE + 1}));
         }
 
         SignalSnapshot memory peakSnap = signalState.getSnapshot(poolId);
         uint256 peakSkew = peakSnap.inventorySkew;
-        assertEq(peakSkew, 3e17, "3 zeroForOne swaps -> skew = 0.3e18");
+        assertEq(peakSkew, 3e17, "3 reference-size zeroForOne swaps -> skew = 0.3e18");
 
-        _swap(SwapParams({zeroForOne: false, amountSpecified: -1e17, sqrtPriceLimitX96: MAX_SQRT_PRICE - 1}));
+        _swap(SwapParams({zeroForOne: false, amountSpecified: -1e18, sqrtPriceLimitX96: MAX_SQRT_PRICE - 1}));
 
         SignalSnapshot memory afterSnap = signalState.getSnapshot(poolId);
         assertLt(afterSnap.inventorySkew, peakSkew, "opposite swap should reduce skew");

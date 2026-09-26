@@ -88,12 +88,25 @@ contract OracleDivergenceSignalTest is Test {
         mockAggregator.setStale();
 
         // The _getOraclePrice catches the revert and returns 0.
-        // When oraclePrice == 0, divergence is 0.
+        // M-6: oracle failure now publishes SCALE (max divergence), not 0.
+        vm.expectEmit(true, false, false, true);
+        emit OracleDivergenceSignal.OracleUnavailable(poolId, block.timestamp);
         oracleSignal.update(poolId, SQRT_PRICE_AT_TICK_0);
 
         SignalSnapshot memory snap = signalState.getSnapshot(poolId);
-        // With oracle returning 0 (stale), divergence should be 0.
-        assertEq(snap.oracleDivergence, 0, "stale oracle should produce zero divergence");
+        assertEq(snap.oracleDivergence, 1e18, "stale oracle must signal max divergence (M-6)");
+    }
+
+    function test_Compute_ReturnsScaleAfterOracleFailure() public {
+        vm.warp(4 hours);
+        mockAggregator.setAnswer(2000e8);
+        oracleSignal.update(poolId, SQRT_PRICE_AT_TICK_0);
+        mockAggregator.setStale();
+        oracleSignal.update(poolId, SQRT_PRICE_AT_TICK_0);
+
+        // compute() must distinguish "failed observation" (SCALE) from
+        // "never observed" (0, see test_Compute_ReturnsZeroWhenNoData).
+        assertEq(oracleSignal.compute(poolId), 1e18, "failed observation must compute as SCALE");
     }
 
     function test_Update_DivergenceDirection() public {

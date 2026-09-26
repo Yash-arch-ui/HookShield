@@ -11,6 +11,13 @@ contract OracleDivergenceSignal {
 
     uint256 public constant SCALE = 1e18;
 
+    /// @notice Emitted when the external oracle cannot be read (M-6).
+    /// @dev Previously an unavailable oracle silently produced divergence 0,
+    ///      indistinguishable from "prices agree". Now the failure itself is
+    ///      signalled: the published divergence becomes SCALE and this event
+    ///      gives off-chain observers the reason.
+    event OracleUnavailable(PoolId indexed poolId, uint256 timestamp);
+
     OracleDivergenceStorage public immutable oracleStorage;
     IOracle public immutable oracle;
     SignalState public immutable signalState;
@@ -43,6 +50,10 @@ contract OracleDivergenceSignal {
 
     /// @notice Called from afterSwap. Fetches the oracle price and computes divergence
     ///         against the pool's current on-chain price.
+    /// @dev M-6: an unavailable/stale oracle (price == 0) previously published
+    ///      divergence = 0, masking the failure as "no divergence". It now
+    ///      publishes SCALE (max divergence) and emits OracleUnavailable, so an
+    ///      oracle outage raises fees instead of silently lowering them.
     function update(PoolId poolId, uint160 currentSqrtPriceX96) external onlyHook {
         uint256 oraclePrice = _getOraclePrice();
 
@@ -50,10 +61,13 @@ contract OracleDivergenceSignal {
         uint256 poolPrice = _sqrtPriceToPriceE18(currentSqrtPriceX96);
 
         // Divergence = |oraclePrice - poolPrice| / max(oraclePrice, poolPrice)
-        // If oracle is unavailable (price == 0), divergence is 0 (no signal).
         uint256 divergenceE18;
         if (oraclePrice > 0) {
             divergenceE18 = _computeDivergence(oraclePrice, poolPrice, oraclePrice);
+        } else {
+            // Oracle unavailable → signal the failure as max divergence (M-6).
+            divergenceE18 = SCALE;
+            emit OracleUnavailable(poolId, block.timestamp);
         }
 
         OracleDivergenceStorage.OracleState memory newState = OracleDivergenceStorage.OracleState({
@@ -64,9 +78,13 @@ contract OracleDivergenceSignal {
         signalState.setOracleDivergence(poolId, divergenceE18);
     }
 
+    /// @dev Distinguishes "never observed" (no update yet → 0, matching the
+    ///      never-written-is-not-stale convention) from "observation failed"
+    ///      (lastOraclePrice == 0 with lastUpdateBlock != 0 → SCALE, M-6).
     function compute(PoolId poolId) external view returns (uint256 divergenceE18) {
         OracleDivergenceStorage.OracleState memory state = oracleStorage.getState(poolId);
-        if (state.lastOraclePrice == 0) return 0;
+        if (state.lastUpdateBlock == 0) return 0;
+        if (state.lastOraclePrice == 0) return SCALE;
         divergenceE18 = _computeDivergence(state.lastOraclePrice, state.lastPoolPrice, state.lastOraclePrice);
     }
 

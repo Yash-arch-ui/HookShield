@@ -24,6 +24,17 @@ contract WhaleScoreSignal {
 
     using StateLibrary for IPoolManager;
     uint256 public constant SCALE = 1e18;
+
+    /// @notice Discount applied to the whale score when this swap REBALANCES
+    ///         the pool's existing inventory skew (M-4).
+    /// @dev M-4: raw |price impact| is direction-agnostic — a large buy and a
+    ///      large sell of equal size produce the same raw number. The pool does
+    ///      care about direction: a swap that pushes netFlow further from zero
+    ///      deepens the imbalance (full impact), while a swap that pushes it
+    ///      back toward zero relieves it (discounted impact). With netFlow == 0
+    ///      (balanced pool) every swap gets full impact.
+    uint256 public constant REBALANCE_DISCOUNT = 0.5e18;
+
     IPoolManager public immutable poolManager;
     SignalState public immutable signalState;
 
@@ -51,7 +62,14 @@ contract WhaleScoreSignal {
         _;
     }
 
-    function update(PoolId poolId, uint256 amountIn, bool zeroForOne) external onlyHook returns (uint256 impactE18) {
+    /// @param netFlow Pre-swap signed inventory flow from InventorySignal
+    ///        (P2). Used only to decide whether this swap rebalances (discount)
+    ///        or worsens (full impact) the existing skew — M-4.
+    function update(PoolId poolId, uint256 amountIn, bool zeroForOne, int256 netFlow)
+        external
+        onlyHook
+        returns (uint256 impactE18)
+    {
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint128 liquidity = poolManager.getLiquidity(poolId);
         if (liquidity == 0 || amountIn == 0) {
@@ -70,10 +88,16 @@ contract WhaleScoreSignal {
         if (impactE18 > SCALE) {
             impactE18 = SCALE;
         }
+        // M-4: direction-aware adjustment against the pool's current skew.
+        impactE18 = _adjustForDirection(impactE18, zeroForOne, netFlow);
         signalState.setWhaleScore(poolId, impactE18);
     }
 
-    function compute(PoolId poolId, uint256 amountIn, bool zeroForOne) external view returns (uint256 impactE18) {
+    function compute(PoolId poolId, uint256 amountIn, bool zeroForOne, int256 netFlow)
+        external
+        view
+        returns (uint256 impactE18)
+    {
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint128 liquidity = poolManager.getLiquidity(poolId);
 
@@ -87,5 +111,26 @@ contract WhaleScoreSignal {
         uint256 diff = oldSqrt > newSqrt ? oldSqrt - newSqrt : newSqrt - oldSqrt;
         impactE18 = (diff * 2 * SCALE) / oldSqrt;
         if (impactE18 > SCALE) impactE18 = SCALE;
+        impactE18 = _adjustForDirection(impactE18, zeroForOne, netFlow);
+    }
+
+    /// @dev netFlow > 0 → pool is skewed toward zeroForOne sells; a oneForZero
+    ///      swap (zeroForOne == false) rebalances it. netFlow < 0 → symmetric.
+    ///      netFlow == 0 → balanced, no discount. Same predicate as
+    ///      ThresholdPolicy's rebalance check, so fee discount and whale-score
+    ///      discount always agree on direction.
+    function _adjustForDirection(uint256 impactE18, bool zeroForOne, int256 netFlow) internal pure returns (uint256) {
+        bool rebalances;
+        if (netFlow > 0) {
+            rebalances = !zeroForOne;
+        } else if (netFlow < 0) {
+            rebalances = zeroForOne;
+        } else {
+            rebalances = false;
+        }
+        if (rebalances) {
+            return (impactE18 * REBALANCE_DISCOUNT) / SCALE;
+        }
+        return impactE18;
     }
 }
