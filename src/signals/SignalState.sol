@@ -145,8 +145,8 @@ contract SignalState is Ownable {
     ///      means "was written but is now too old to trust."
     function isStale(PoolId poolId) external view returns (bool) {
         SignalSnapshot storage s = snapshots[poolId];
-        return _isExpired(s.volatilityValidUntil) || _isExpired(s.inventoryValidUntil)
-            || _isExpired(s.oracleValidUntil) || _isExpired(s.whaleValidUntil);
+        return _isExpired(s.volatilityValidUntil) || _isExpired(s.inventoryValidUntil) || _isExpired(s.oracleValidUntil)
+            || _isExpired(s.whaleValidUntil);
     }
 
     function isVolatilityStale(PoolId poolId) external view returns (bool) {
