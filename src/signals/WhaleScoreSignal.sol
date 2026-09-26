@@ -51,11 +51,7 @@ contract WhaleScoreSignal {
         _;
     }
 
-    function update(PoolId poolId, uint256 amountIn, bool zeroForOne)
-        external
-        onlyHook
-        returns (uint256 impactE18)
-    {
+    function update(PoolId poolId, uint256 amountIn, bool zeroForOne) external onlyHook returns (uint256 impactE18) {
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint128 liquidity = poolManager.getLiquidity(poolId);
         if (liquidity == 0 || amountIn == 0) {
