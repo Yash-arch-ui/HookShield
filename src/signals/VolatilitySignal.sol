@@ -49,11 +49,7 @@ contract VolatilitySignal is ISignal, Ownable {
         minObservationSize = size;
     }
 
-    function update(PoolId poolId, uint160 newSqrtPriceX96, uint256 tradeSize)
-        external
-        override
-        onlyHook
-    {
+    function update(PoolId poolId, uint160 newSqrtPriceX96, uint256 tradeSize) external override onlyHook {
         // P1 dust filter: below threshold, not an observation at all.
         if (tradeSize < minObservationSize) {
             return;
