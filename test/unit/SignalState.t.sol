@@ -219,4 +219,70 @@ contract SignalStateTest is Test {
         vm.expectRevert("out of bounds");
         signalState.setMevScore(poolId, 1e18 + 1);
     }
+
+    // ── H-3: per-field reporter staleness ───────────────────────────────
+
+    function test_H3_ReportersHaveIndependentDeadlines() public {
+        // NOTE: absolute warps — `vm.warp(block.timestamp + X)` repeated with an
+        // identical expression gets CSE'd by the via-IR optimizer (the second
+        // call receives the pre-warp value), so absolute timestamps are used.
+        signalState.setJitScore(poolId, 0.5e18); // t=1, valid until t=301
+        vm.warp(181); // t+3m: sandwich written, valid until t=481
+        signalState.setSandwichScore(poolId, 0.7e18);
+
+        vm.warp(361); // t+6m: JIT (deadline 301) expired, sandwich (481) fresh
+        assertTrue(signalState.isJitStale(poolId), "JIT must be stale at t+6");
+        assertFalse(signalState.isSandwichStale(poolId), "sandwich (written t+3) must still be fresh at t+6");
+    }
+
+    function test_H3_ReporterExpiry_DoesNotMarkPoolStale() public {
+        // Reporter staleness must NOT feed the pool-level isStale() gate —
+        // that gate escalates risk to SCALE and the hook treats it specially.
+        // Only core signals gate staleness.
+        signalState.setJitScore(poolId, 0.5e18);
+        vm.warp(block.timestamp + 61 minutes);
+
+        assertTrue(signalState.isJitStale(poolId), "reporter field itself is stale");
+        assertFalse(signalState.isStale(poolId), "pool-level staleness must stay core-only");
+    }
+
+    function test_H3_AllReporters_FreshAfterWrite() public {
+        signalState.setJitScore(poolId, 0.5e18);
+        signalState.setSandwichScore(poolId, 0.5e18);
+        signalState.setFlashloanScore(poolId, 0.5e18);
+        signalState.setToxicFlowScore(poolId, 0.5e18);
+        signalState.setMevScore(poolId, 0.5e18);
+
+        assertFalse(signalState.isJitStale(poolId));
+        assertFalse(signalState.isSandwichStale(poolId));
+        assertFalse(signalState.isFlashloanStale(poolId));
+        assertFalse(signalState.isToxicFlowStale(poolId));
+        assertFalse(signalState.isMevStale(poolId));
+    }
+
+    function test_H3_NeverWrittenReporter_NotStale() public view {
+        assertFalse(signalState.isJitStale(poolId));
+        assertFalse(signalState.isSandwichStale(poolId));
+        assertFalse(signalState.isFlashloanStale(poolId));
+        assertFalse(signalState.isToxicFlowStale(poolId));
+        assertFalse(signalState.isMevStale(poolId));
+    }
+
+    function test_H3_ReporterSetter_AlsoRefreshesSharedDeadline() public {
+        // Backwards compat: the shared validUntil/updatedAt must still be
+        // written by reporter setters (readers that predate per-field deadlines).
+        signalState.setJitScore(poolId, 0.5e18);
+        SignalSnapshot memory snap = signalState.getSnapshot(poolId);
+        assertEq(snap.validUntil, block.timestamp + signalState.stalenessWindow());
+        assertEq(snap.updatedAt, block.timestamp);
+        assertEq(snap.jitValidUntil, block.timestamp + signalState.stalenessWindow());
+    }
+
+    function test_H3_PerFieldStalenessWindow_AppliesToReporters() public {
+        signalState.setStalenessWindow(30 seconds);
+        signalState.setMevScore(poolId, 0.5e18);
+
+        vm.warp(block.timestamp + 31 seconds);
+        assertTrue(signalState.isMevStale(poolId), "30s window must apply to reporter fields too");
+    }
 }

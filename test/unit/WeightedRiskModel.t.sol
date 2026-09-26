@@ -104,4 +104,100 @@ contract WeightedRiskModelTest is Test {
         // only volatility contributes now, at 50% weight: 0.8e18 * 0.5e18 / 1e18 = 0.4e18
         assertEq(risk, 0.4e18);
     }
+
+    // ── H-2: reporter scores wired into risk ────────────────────────────
+
+    function test_H2_ReporterScore_IncreasesRisk() public {
+        // Core weights are 100% volatility, all core signals 0 → base risk 0.
+        // A fresh reporter score at 1.0 with reporterWeight 0.3e18 → 0.3e18.
+        signalState.setJitScore(poolId, 1e18);
+        uint256 risk = riskModel.risk(poolId, 1e18, 0);
+        assertEq(risk, 0.3e18, "fresh reporter score must add reporterWeight * score");
+    }
+
+    function test_H2_ReporterTerm_CappedAtReporterWeight() public {
+        // Five reporter scores all at SCALE → max is SCALE → term = reporterWeight.
+        signalState.setJitScore(poolId, 1e18);
+        signalState.setSandwichScore(poolId, 1e18);
+        signalState.setFlashloanScore(poolId, 1e18);
+        signalState.setToxicFlowScore(poolId, 1e18);
+        signalState.setMevScore(poolId, 1e18);
+
+        uint256 risk = riskModel.risk(poolId, 1e18, 0);
+        assertEq(risk, riskModel.DEFAULT_REPORTER_WEIGHT(), "five max scores must cap at reporterWeight");
+        assertEq(risk, 0.3e18);
+    }
+
+    function test_H2_ReporterTerm_UsesMaxNotSum() public {
+        // jit 0.6e18 and sandwich 0.9e18 → max 0.9e18 → term 0.9 * 0.3 = 0.27e18.
+        // (Sum would be 0.45e18 — the model deliberately takes the worst threat.)
+        signalState.setJitScore(poolId, 0.6e18);
+        signalState.setSandwichScore(poolId, 0.9e18);
+        uint256 risk = riskModel.risk(poolId, 1e18, 0);
+        assertEq(risk, 0.27e18, "reporter term must use max fresh score, not sum");
+    }
+
+    function test_H2_StaleReporterScore_ContributesNothing() public {
+        // H-3 asymmetry: expired reporter → contributes 0 (NOT SCALE).
+        signalState.setJitScore(poolId, 1e18);
+        vm.warp(block.timestamp + 61 minutes);
+
+        uint256 risk = riskModel.risk(poolId, 1e18, 0);
+        assertEq(risk, 0, "expired reporter must contribute 0, not escalate");
+        assertFalse(riskModel.isStale(poolId), "reporter expiry must not mark the pool stale");
+    }
+
+    function test_H2_FreshReporterBeatsExpiredOne() public {
+        // MEV report fresh at 0.2e18, JIT expired at 1e18 → only MEV counts.
+        // Absolute warps: identical `block.timestamp + X` expressions get CSE'd
+        // by the via-IR optimizer across vm.warp calls (see SignalState.t.sol).
+        signalState.setJitScore(poolId, 1e18); // t=1, deadline 301
+        vm.warp(181); // t+3m
+        signalState.setMevScore(poolId, 0.2e18); // fresh at 181, deadline 481
+        vm.warp(361); // t+6m: JIT expired (301), MEV fresh (481)
+
+        uint256 risk = riskModel.risk(poolId, 1e18, 0);
+        assertEq(risk, (0.2e18 * 0.3e18) / 1e18, "only the fresh reporter score may contribute");
+        assertEq(risk, 0.06e18);
+    }
+
+    function test_H2_NeverWrittenReporter_ContributesNothing() public {
+        uint256 risk = riskModel.risk(poolId, 1e18, 0);
+        assertEq(risk, 0, "no reports ever written = no reporter contribution");
+    }
+
+    function test_H2_ReporterWeightZero_DisablesTerm() public {
+        riskModel.setReporterWeight(0);
+        signalState.setJitScore(poolId, 1e18);
+        uint256 risk = riskModel.risk(poolId, 1e18, 0);
+        assertEq(risk, 0, "reporterWeight = 0 must disable the reporter term");
+    }
+
+    function test_H2_SetReporterWeight_OnlyOwner() public {
+        vm.prank(address(0xBEEF));
+        vm.expectRevert();
+        riskModel.setReporterWeight(0.5e18);
+    }
+
+    function test_H2_SetReporterWeight_RevertsAboveScale() public {
+        vm.expectRevert("reporter weight out of bounds");
+        riskModel.setReporterWeight(1e18 + 1);
+    }
+
+    function test_H2_ReporterTerm_StacksWithCoreAndPressure() public {
+        // vol 0.5e18 * 1.0 weight = 0.5e18, reporter jit 1e18 → +0.3e18,
+        // pressure trade==liq → +0.3e18 → sum 1.1e18 → clamped to 1e18.
+        signalState.setVolatility(poolId, 0.5e18);
+        signalState.setJitScore(poolId, 1e18);
+        uint256 risk = riskModel.risk(poolId, 1e18, 1e18);
+        assertEq(risk, 1e18, "combined terms must clamp at SCALE");
+    }
+
+    function test_H2_CoreStale_StillShortCircuitsToScale() public {
+        // Even with fresh reporters, an expired CORE signal → SCALE.
+        signalState.setVolatility(poolId, 0.5e18);
+        signalState.setJitScore(poolId, 1e18); // fresh
+        vm.warp(block.timestamp + 61 minutes);
+        assertEq(riskModel.risk(poolId, 1e18, 0), 1e18, "stale core must win over fresh reporters");
+    }
 }

@@ -7,8 +7,11 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// @notice Snapshot of all published signals for one pool.
 /// @dev The four core signals consumed by WeightedRiskModel each carry their own
 ///      `*ValidUntil` timestamp so a single shared deadline cannot mask staleness
-///      in a different field (P0 research finding). Reporter scores share
-///      `validUntil` because the risk model does not consume them.
+///      in a different field (P0 research finding). Reporter scores now also
+///      carry per-field deadlines (H-3) because WeightedRiskModel consumes them
+///      (H-2): a single shared `validUntil` would let a fresh JIT report mask an
+///      expired sandwich report (and vice versa). The shared `validUntil` is
+///      still written by every reporter setter for backwards compatibility.
 struct SignalSnapshot {
     uint256 volatility;
     uint256 inventorySkew;
@@ -26,6 +29,12 @@ struct SignalSnapshot {
     uint256 inventoryValidUntil;
     uint256 oracleValidUntil;
     uint256 whaleValidUntil;
+    // Per-field staleness deadlines for the five reporter scores (H-3).
+    uint256 jitValidUntil;
+    uint256 sandwichValidUntil;
+    uint256 flashloanValidUntil;
+    uint256 toxicFlowValidUntil;
+    uint256 mevValidUntil;
 }
 
 contract SignalState is Ownable {
@@ -91,12 +100,17 @@ contract SignalState is Ownable {
         s.updatedAt = block.timestamp;
     }
 
-    // --- Reporter scores (shared deadline: not consumed by risk model) ---
+    // --- Reporter scores (per-field deadline, H-3) ---
+    // Each setter stamps its OWN `*ValidUntil` so an expired sandwich report
+    // cannot be masked by a fresh JIT report sharing one deadline. The shared
+    // `validUntil` is still refreshed for backwards compatibility with any
+    // reader that predates the per-field deadlines.
 
     function setJitScore(PoolId poolId, uint256 value) external onlyAuthorized {
         require(value <= 1e18, "out of bounds");
         SignalSnapshot storage s = snapshots[poolId];
         s.jitScore = value;
+        s.jitValidUntil = block.timestamp + stalenessWindow;
         s.validUntil = block.timestamp + stalenessWindow;
         s.updatedAt = block.timestamp;
     }
@@ -105,6 +119,7 @@ contract SignalState is Ownable {
         require(value <= 1e18, "out of bounds");
         SignalSnapshot storage s = snapshots[poolId];
         s.sandwichScore = value;
+        s.sandwichValidUntil = block.timestamp + stalenessWindow;
         s.validUntil = block.timestamp + stalenessWindow;
         s.updatedAt = block.timestamp;
     }
@@ -113,6 +128,7 @@ contract SignalState is Ownable {
         require(value <= 1e18, "out of bounds");
         SignalSnapshot storage s = snapshots[poolId];
         s.flashloanScore = value;
+        s.flashloanValidUntil = block.timestamp + stalenessWindow;
         s.validUntil = block.timestamp + stalenessWindow;
         s.updatedAt = block.timestamp;
     }
@@ -121,6 +137,7 @@ contract SignalState is Ownable {
         require(value <= 1e18, "out of bounds");
         SignalSnapshot storage s = snapshots[poolId];
         s.toxicFlowScore = value;
+        s.toxicFlowValidUntil = block.timestamp + stalenessWindow;
         s.validUntil = block.timestamp + stalenessWindow;
         s.updatedAt = block.timestamp;
     }
@@ -129,6 +146,7 @@ contract SignalState is Ownable {
         require(value <= 1e18, "out of bounds");
         SignalSnapshot storage s = snapshots[poolId];
         s.mevScore = value;
+        s.mevValidUntil = block.timestamp + stalenessWindow;
         s.validUntil = block.timestamp + stalenessWindow;
         s.updatedAt = block.timestamp;
     }
@@ -163,6 +181,35 @@ contract SignalState is Ownable {
 
     function isWhaleStale(PoolId poolId) external view returns (bool) {
         return _isExpired(snapshots[poolId].whaleValidUntil);
+    }
+
+    // --- Per-field reporter staleness (H-3) ---
+    // Each reporter score has its own deadline so an expired sandwich report
+    // cannot hide behind a fresh JIT report. Semantics match the core fields:
+    // never-written (validUntil == 0) is NOT stale — it simply has no value.
+    // These views do NOT feed the pool-level `isStale()` gate; WeightedRiskModel
+    // reads the snapshot deadlines directly and contributes 0 for fields that
+    // are expired or never written (reporter downtime must not push risk to
+    // SCALE — unlike core signals, which the hook re-publishes every swap).
+
+    function isJitStale(PoolId poolId) external view returns (bool) {
+        return _isExpired(snapshots[poolId].jitValidUntil);
+    }
+
+    function isSandwichStale(PoolId poolId) external view returns (bool) {
+        return _isExpired(snapshots[poolId].sandwichValidUntil);
+    }
+
+    function isFlashloanStale(PoolId poolId) external view returns (bool) {
+        return _isExpired(snapshots[poolId].flashloanValidUntil);
+    }
+
+    function isToxicFlowStale(PoolId poolId) external view returns (bool) {
+        return _isExpired(snapshots[poolId].toxicFlowValidUntil);
+    }
+
+    function isMevStale(PoolId poolId) external view returns (bool) {
+        return _isExpired(snapshots[poolId].mevValidUntil);
     }
 
     function _isExpired(uint256 validUntil) internal view returns (bool) {
